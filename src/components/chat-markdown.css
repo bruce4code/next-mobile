@@ -1,0 +1,64 @@
+/* 简化的复制按钮样式 */
+.code-block-wrapper {
+  position: relative;
+}
+
+.copy-btn {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  padding: 2px 6px;
+  font-size: 12px;
+  border: none;
+  background-color: #eee;
+  border-radius: 4px;
+  cursor: pointer;
+  z-index: 10;
+  display: none; /* 使用 display 而不是 opacity */
+}
+
+.code-block-wrapper:hover .copy-btn {
+  opacity: 1;
+}
+
+.copy-btn:hover {
+  background-color: #ddd;
+}
+
+.dark .copy-btn {
+  background-color: #333;
+  color: #fff;
+}
+
+.dark .copy-btn:hover {
+  background-color: #444;
+}
+
+pre {
+  background: #f6f8fa;
+  padding: 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+
+.dark pre {
+  background: #1e1e1e;
+}
+
+code {
+  font-family: var(--font-geist-mono), Menlo, Monaco, 'Courier New', monospace;
+  font-size: 0.95em;
+}
+
+/* 内联代码样式 */
+:not(pre) > code {
+  background-color: rgba(175, 184, 193, 0.2);
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.dark :not(pre) > code {
+  background-color: rgba(110, 118, 129, 0.4);
+}

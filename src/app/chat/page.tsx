@@ -5,10 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import rehypeRaw from 'rehype-raw'
-import rehypeHighlight from 'rehype-highlight'
+import ChatMarkdown from '@/components/ChatMarkdown'
 
 // 定义消息类型
 type Message = {
@@ -102,6 +99,14 @@ export default function ChatPage() {
           try {
             const jsonData = JSON.parse(jsonStr)
             if (jsonData.choices?.[0]?.delta?.content) {
+              // 获取内容
+              let content = jsonData.choices[0].delta.content;
+              
+              // 如果内容是对象，将其转换为格式化的 JSON 字符串
+              if (typeof content === 'object' && content !== null) {
+                content = '```json\n' + JSON.stringify(content, null, 2) + '\n```';
+              }
+              
               // 更新助手消息内容
               assistantMessage.content += jsonData.choices[0].delta.content
               setMessages(prev => [
@@ -114,15 +119,16 @@ export default function ChatPage() {
           }
         }
       }
+      
     } catch (error) {
-      console.error('请求或处理错误:', error)
-      // 添加错误消息到聊天
+      console.error('聊天请求错误:', error)
+      // 显示错误消息
       setMessages(prev => [
         ...prev, 
         { 
           role: 'assistant', 
-          content: '抱歉，处理您的请求时出错了。', 
-          id: Date.now().toString() 
+          content: '抱歉，处理您的请求时出错了。请稍后再试。',
+          id: Date.now().toString()
         }
       ])
     } finally {
@@ -208,12 +214,7 @@ export default function ChatPage() {
                     <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                   ) : (
                     <div className="prose prose-sm dark:prose-invert max-w-none">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        rehypePlugins={[rehypeRaw, rehypeHighlight]}
-                      >
-                        {message.content}
-                      </ReactMarkdown>
+                      <ChatMarkdown content={message.content} />
                     </div>
                   )}
                 </div>
