@@ -5,6 +5,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
+import rehypeHighlight from 'rehype-highlight'
 
 // 定义消息类型
 type Message = {
@@ -77,6 +81,8 @@ export default function ChatPage() {
         throw new Error('无法获取响应流')
       }
       
+      let buffer = ''
+      
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -84,30 +90,27 @@ export default function ChatPage() {
         const chunk = decoder.decode(value)
         console.log('收到的原始数据:', chunk)
         
-        // 处理 SSE 格式的数据
-        const lines = chunk.split('\n')
-        for (const line of lines) {
-          if (line.startsWith('data:') && line.trim() !== 'data:') {
-            try {
-              const jsonStr = line.slice(5).trim()
-              if (jsonStr && jsonStr !== '[DONE]') {
-                try {
-                  const jsonData = JSON.parse(jsonStr)
-                  if (jsonData.choices?.[0]?.delta?.content) {
-                    // 更新助手消息内容
-                    assistantMessage.content += jsonData.choices[0].delta.content
-                    setMessages(prev => [
-                      ...prev.slice(0, -1), 
-                      { ...assistantMessage }
-                    ])
-                  }
-                } catch (jsonError) {
-                  console.error('JSON 解析错误:', jsonError, jsonStr)
-                }
-              }
-            } catch (e) {
-              console.error('处理行失败:', e, line)
+        // 将新数据添加到缓冲区
+        buffer += chunk
+        
+        // 尝试从缓冲区中提取完整的 JSON 对象
+        const jsonObjects = extractJsonObjects(buffer)
+        buffer = jsonObjects.remainder
+        
+        // 处理提取出的 JSON 对象
+        for (const jsonStr of jsonObjects.objects) {
+          try {
+            const jsonData = JSON.parse(jsonStr)
+            if (jsonData.choices?.[0]?.delta?.content) {
+              // 更新助手消息内容
+              assistantMessage.content += jsonData.choices[0].delta.content
+              setMessages(prev => [
+                ...prev.slice(0, -1), 
+                { ...assistantMessage }
+              ])
             }
+          } catch (jsonError) {
+            console.error('JSON 解析错误:', jsonError, jsonStr)
           }
         }
       }
@@ -124,6 +127,52 @@ export default function ChatPage() {
       ])
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  // 辅助函数：从文本中提取完整的 JSON 对象
+  function extractJsonObjects(text: string): { objects: string[], remainder: string } {
+    const objects: string[] = []
+    let currentPos = 0
+    let startPos = 0
+    let openBraces = 0
+    let inString = false
+    let escapeNext = false
+    
+    while (currentPos < text.length) {
+      const char = text[currentPos]
+      
+      if (escapeNext) {
+        escapeNext = false
+      } else if (char === '\\' && inString) {
+        escapeNext = true
+      } else if (char === '"') {
+        inString = !inString
+      } else if (!inString) {
+        if (char === '{') {
+          if (openBraces === 0) {
+            startPos = currentPos
+          }
+          openBraces++
+        } else if (char === '}') {
+          openBraces--
+          if (openBraces === 0) {
+            objects.push(text.substring(startPos, currentPos + 1))
+          }
+        }
+      }
+      
+      currentPos++
+    }
+    
+    // 返回提取的对象和剩余的文本
+    const lastObjectEnd = objects.length > 0 
+      ? startPos + objects[objects.length - 1].length 
+      : 0
+    
+    return {
+      objects,
+      remainder: text.substring(lastObjectEnd)
     }
   }
 
@@ -155,7 +204,18 @@ export default function ChatPage() {
                       : 'bg-muted max-w-[80%]'
                   }`}
                 >
-                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  {message.role === 'user' ? (
+                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  ) : (
+                    <div className="prose prose-sm dark:prose-invert max-w-none">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeRaw, rehypeHighlight]}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+                  )}
                 </div>
               ))}
               <div ref={messagesEndRef} />
