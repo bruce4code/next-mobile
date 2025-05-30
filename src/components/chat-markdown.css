@@ -14,7 +14,6 @@
   border-radius: 4px;
   cursor: pointer;
   z-index: 10;
-  display: none; /* 使用 display 而不是 opacity */
 }
 
 .code-block-wrapper:hover .copy-btn {
@@ -35,11 +34,31 @@
 }
 
 pre {
+  position: relative;
   background: #f6f8fa;
   padding: 1em;
   border-radius: 6px;
   overflow-x: auto;
   margin: 1em 0;
+}
+
+.copy-btn {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid #ddd;
+  background-color: #f8f8f8;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  opacity: 0.7;
+}
+
+.copy-btn:hover {
+  background-color: #e8e8e8;
+  opacity: 1;
 }
 
 .dark pre {

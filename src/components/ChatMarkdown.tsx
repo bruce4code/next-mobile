@@ -12,9 +12,14 @@ interface ChatMarkdownProps {
 
 const ChatMarkdown: React.FC<ChatMarkdownProps> = ({ content }) => {
   const handleCopy = (code: string) => {
-    navigator.clipboard.writeText(code).then(() => {
-      alert('复制成功！')
-    })
+    // 确保复制的是纯文本内容
+    const textToCopy = typeof code === 'string' ? code : JSON.stringify(code, null, 2);
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      alert('复制成功！');
+    }).catch(err => {
+      console.error('复制失败:', err);
+      alert('复制失败，请重试');
+    });
   }
   return (
     <ReactMarkdown
