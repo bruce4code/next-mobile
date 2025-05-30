@@ -5,6 +5,7 @@ import rehypeHighlight from 'rehype-highlight'
 // import 'highlight.js/styles/github.css' // 可更换风格：atom-one-dark、vs、monokai 等
 import 'highlight.js/styles/atom-one-dark.css' // 或其他主题
 import './chat-markdown.css'
+import { toast } from "sonner"
 
 interface ChatMarkdownProps {
   content: string
@@ -15,10 +16,16 @@ const ChatMarkdown: React.FC<ChatMarkdownProps> = ({ content }) => {
     // 确保复制的是纯文本内容
     const textToCopy = typeof code === 'string' ? code : JSON.stringify(code, null, 2);
     navigator.clipboard.writeText(textToCopy).then(() => {
-      alert('复制成功！');
+      toast.success("复制成功", {
+        description: "代码已复制到剪贴板",
+        duration: 2000,
+      });
     }).catch(err => {
       console.error('复制失败:', err);
-      alert('复制失败，请重试');
+      toast.error("复制失败", {
+        description: "请重试",
+        duration: 2000,
+      });
     });
   }
   return (
