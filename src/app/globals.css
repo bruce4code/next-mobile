@@ -117,6 +117,19 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground flex;
   }
+}
+
+/* 添加在文件末尾 */
+.sidebar {
+  width: 260px;
+  border-right: 1px solid hsl(var(--border));
+  background-color: hsl(var(--sidebar));
+  color: hsl(var(--sidebar-foreground));
+}
+
+.sidebar .button:hover {
+  background-color: hsl(var(--sidebar-accent));
+  color: hsl(var(--sidebar-accent-foreground));
 }
