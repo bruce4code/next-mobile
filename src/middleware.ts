@@ -5,7 +5,6 @@ export async function middleware(request: NextRequest) { // Uncomment this line 
     return await updateSession(request)
 }
 async function updateSession(request: NextRequest) { // This can be an internal helper function
-  console.log(request, 'request') 
   let supabaseResponse = NextResponse.next({
     request,
   })
@@ -79,7 +78,7 @@ export const config = {
      * - favicon.ico (favicon file)
      * Feel free to modify this pattern to include more paths.
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api/register|_next/static|_next/image|favicon.ico|.*\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
 

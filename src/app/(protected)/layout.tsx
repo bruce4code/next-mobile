@@ -11,6 +11,7 @@ export default function ProtectedLayout({
 }) {
   const cookieStore = cookies()
   const token = cookieStore.get('token')?.value
+  console.log('token-->',token)
 
   if (!token) {
     redirect('/login')
@@ -19,7 +20,7 @@ export default function ProtectedLayout({
   return (
     <SidebarProvider>
       <AppSidebar />
-      <main className="flex-1 w-full h-screen overflow-auto">
+      <main className=" w-full h-screen overflow-auto">
         <SidebarTrigger />
         {children}
       </main>

@@ -8,6 +8,8 @@ import { useForm } from "react-hook-form"
 import { createClient } from '@/lib/supabase/client' 
 import { useRouter } from 'next/navigation' 
 import { useState } from 'react' // 引入 useState
+// 移除对 prisma 的导入
+// import prisma from '@/lib/prisma'
 
 export function LoginForm() {
   const { register, handleSubmit, formState: { errors } } = useForm()
@@ -37,7 +39,7 @@ export function LoginForm() {
         }
       } else {
         // 注册逻辑
-        const { error } = await supabase.auth.signUp({
+        const { data: signUpData, error } = await supabase.auth.signUp({
           email: data.email,
           password: data.password,
           // Supabase 默认会发送确认邮件，可以在 Supabase 项目设置中配置
@@ -50,8 +52,35 @@ export function LoginForm() {
           setFormError(`注册失败: ${error.message}`)
         } else {
           console.log('注册成功，请检查您的邮箱进行验证。')
+
+          // 在 Supabase 注册成功后，调用 API 路由同步用户数据到 Prisma 的 User 表
+          if (signUpData.user) {
+            try {
+              const response = await fetch('/api/register', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  userId: signUpData.user.id,
+                  email: signUpData.user.email,
+                }),
+              })
+
+              const result = await response.json()
+
+              if (!response.ok) {
+                throw new Error(result.error || 'Failed to sync user data via API')
+              }
+              console.log('用户数据已通过 API 同步到数据库')
+            } catch (apiError) {
+              console.error('同步用户数据到数据库失败:', apiError)
+              setFormError('注册成功，但同步用户数据失败。请联系管理员。')
+            }
+          }
+
           // 提示用户检查邮箱，或者直接尝试登录（如果禁用了邮件确认）
-          setFormError('注册成功！请检查您的邮箱以完成验证，然后尝试登录。') 
+          setFormError('注册成功！请检查您的邮箱以完成验证，然后尝试登录。')
           setIsLoginMode(true) // 注册成功后切换回登录模式
         }
       }

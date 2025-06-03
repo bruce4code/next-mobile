@@ -187,7 +187,7 @@ export default function ChatPage() {
   }, [messages])
   
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen w-full">
       <div className="flex flex-col flex-1">
         <Navbar />
         <div className="container mx-auto max-w-4xl flex-1 p-2 py-4">
