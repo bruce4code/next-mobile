@@ -27,16 +27,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        <SidebarProvider>
-          <AppSidebar />
-          <main className="flex-1 w-full h-screen overflow-auto">
-            <SidebarTrigger />
-            {children}
-          </main>
-        </SidebarProvider>
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        {children}
         <Toaster />
       </body>
     </html>

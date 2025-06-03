@@ -182,12 +182,10 @@ export default function ChatPage() {
       remainder: text.substring(lastObjectEnd)
     }
   }
-
-  // 自动滚动到最新消息
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
-
+  
   return (
     <div className="flex h-screen">
       <div className="flex flex-col flex-1">
