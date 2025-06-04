@@ -7,6 +7,8 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/componen
 import { ScrollArea } from '@/components/ui/scroll-area'
 import ChatMarkdown from '@/components/ChatMarkdown'
 import { Navbar } from '@/components/Navbar'
+import { createClient } from '@/lib/supabase/client'; // 导入客户端 Supabase 客户端
+import { User } from '@supabase/supabase-js'; // 导入 User 类型
 
 // 定义消息类型
 type Message = {
@@ -20,7 +22,32 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [currentUser, setCurrentUser] = useState<User | null>(null); // 新增：存储当前用户信息
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const supabase = createClient(); // 创建 Supabase 客户端实例
+
+  // 在组件加载时获取当前用户
+  useEffect(() => {
+    const fetchUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setCurrentUser(user);
+    };
+
+    fetchUser();
+
+    // 监听认证状态变化，实时更新用户状态
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setCurrentUser(session?.user ?? null);
+      }
+    );
+
+    // 清理监听器
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, [supabase]); // 依赖 supabase 客户端实例
 
   // 处理输入变化
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -30,23 +57,30 @@ export default function ChatPage() {
   // 处理表单提交
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!input.trim() || isLoading) return
-    
+    // 确保用户已加载且输入不为空
+    if (!input.trim() || isLoading || !currentUser) {
+      if (!currentUser) {
+        console.error('用户未登录，无法发送消息。');
+        // 可以提示用户登录
+      }
+      return;
+    }
+
     setIsLoading(true)
-    
+
     // 创建用户消息
     const userMessage: Message = {
-      role: 'user', 
+      role: 'user',
       content: input,
       id: Date.now().toString()
     }
-    
+
     // 添加用户消息到聊天
     setMessages(prev => [...prev, userMessage])
     setInput('')
-    
+
     try {
-      // 发送请求到 API
+      // 发送请求到 OpenRouter API
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
@@ -56,45 +90,46 @@ export default function ChatPage() {
           messages: [...messages, userMessage].map(({ role, content }) => ({ role, content }))
         })
       })
-      
+
       if (!response.ok) {
         throw new Error(`请求失败: ${response.status}`)
       }
-      
+
       // 创建助手消息
       const assistantMessage: Message = {
         role: 'assistant',
         content: '',
         id: Date.now().toString()
       }
-      
+
       // 添加空的助手消息到聊天
       setMessages(prev => [...prev, assistantMessage])
-      
+
       // 处理流式响应
       const reader = response.body?.getReader()
       const decoder = new TextDecoder()
-      
+
       if (!reader) {
         throw new Error('无法获取响应流')
       }
-      
+
       let buffer = ''
-      
+      let fullAssistantContent = ''; // 存储完整的助手回复内容
+
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        
+
         const chunk = decoder.decode(value)
         console.log('收到的原始数据:', chunk)
-        
+
         // 将新数据添加到缓冲区
         buffer += chunk
-        
+
         // 尝试从缓冲区中提取完整的 JSON 对象
         const jsonObjects = extractJsonObjects(buffer)
         buffer = jsonObjects.remainder
-        
+
         // 处理提取出的 JSON 对象
         for (const jsonStr of jsonObjects.objects) {
           try {
@@ -102,16 +137,17 @@ export default function ChatPage() {
             if (jsonData.choices?.[0]?.delta?.content) {
               // 获取内容
               let content = jsonData.choices[0].delta.content;
-              
+
               // 如果内容是对象，将其转换为格式化的 JSON 字符串
               if (typeof content === 'object' && content !== null) {
                 content = '```json\n' + JSON.stringify(content, null, 2) + '\n```';
               }
-              
-              // 更新助手消息内容
-              assistantMessage.content += jsonData.choices[0].delta.content
+
+              // 更新助手消息内容并累加完整内容
+              assistantMessage.content += content;
+              fullAssistantContent += content; // 累加完整内容
               setMessages(prev => [
-                ...prev.slice(0, -1), 
+                ...prev.slice(0, -1),
                 { ...assistantMessage }
               ])
             }
@@ -120,7 +156,63 @@ export default function ChatPage() {
           }
         }
       }
-      
+
+      // 在接收到完整助手回复后，调用保存 API
+      if (fullAssistantContent && currentUser) { // 确保有完整内容且用户已登录
+        try {
+          const saveResponse = await fetch('/api/save-chat', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              userId: currentUser.id, // <-- 使用获取到的用户 ID
+              role: 'assistant',
+              content: fullAssistantContent,
+              // 您可能还需要从 OpenRouter 响应中提取并传递 model, promptTokens, completionTokens, totalTokens 等信息
+              // model: '...', 
+              // promptTokens: ..., 
+              // completionTokens: ..., 
+              // totalTokens: ...
+            }),
+          });
+
+          if (!saveResponse.ok) {
+            console.error('Failed to save assistant message:', saveResponse.status);
+            // 可以选择向用户显示保存失败的提示
+          } else {
+            console.log('Assistant message saved successfully.');
+          }
+
+          // 同样保存用户发送的消息
+           try {
+            const saveUserMessageResponse = await fetch('/api/save-chat', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                userId: currentUser.id, // <-- 使用获取到的用户 ID
+                role: 'user',
+                content: userMessage.content,
+                // 用户消息可能没有 model, tokens 等信息，根据您的 schema 调整
+              }),
+            });
+
+            if (!saveUserMessageResponse.ok) {
+              console.error('Failed to save user message:', saveUserMessageResponse.status);
+            } else {
+              console.log('User message saved successfully.');
+            }
+          } catch (saveUserError) {
+             console.error('Error saving user message:', saveUserError);
+          }
+
+        } catch (saveError) {
+          console.error('Error calling save API:', saveError);
+        }
+      }
+
     } catch (error) {
       console.error('聊天请求错误:', error)
       // 显示错误消息
@@ -145,10 +237,10 @@ export default function ChatPage() {
     let openBraces = 0
     let inString = false
     let escapeNext = false
-    
+
     while (currentPos < text.length) {
       const char = text[currentPos]
-      
+
       if (escapeNext) {
         escapeNext = false
       } else if (char === '\\' && inString) {
@@ -185,7 +277,7 @@ export default function ChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
-  
+
   return (
     <div className="flex h-screen w-full">
       <div className="flex flex-col flex-1">

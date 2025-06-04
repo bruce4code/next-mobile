@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client' // 导入 Supabase 客户�
 import { useRouter } from 'next/navigation'
 
 export function Navbar() {
-  const [user, setUser] = useState<any>(null) // 存储用户信息的 state
+  const [user, setUser] = useState<unknown>(null) // 存储用户信息的 state
   const supabase = createClient() // 创建 Supabase 客户端实例
   const router = useRouter()
 
