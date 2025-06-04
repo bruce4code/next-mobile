@@ -9,13 +9,13 @@ export default function ProtectedLayout({
 }: {
   children: React.ReactNode
 }) {
-  const cookieStore = cookies()
-  const token = cookieStore.get('token')?.value
-  console.log('token-->',token)
+  // const cookieStore = cookies()
+  // const token = cookieStore.get('token')?.value
+  // console.log('token-->',token)
 
-  if (!token) {
-    redirect('/login')
-  }
+  // if (!token) {
+  //   redirect('/login')
+  // }
 
   return (
     <SidebarProvider>

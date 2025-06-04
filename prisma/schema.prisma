@@ -1,12 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
-  // output   = "../src/generated/prisma" // 移除或注释掉这一行
 }
 
 datasource db {
@@ -23,18 +16,14 @@ model User {
 }
 
 model OpenRouterChat {
-  id        String   @id @default(cuid())
-  userId    String   // 关联到您的用户模型，如果需要的话
-  // user      User     @relation(fields: [userId], references: [id]) // 如果您有 User 模型
-  role      String   // 例如 "user", "assistant"
-  content   String   @db.Text // 使用 @db.Text 以支持较长的内容
-  model     String?  // 使用的模型，例如 "gpt-3.5-turbo"
-  promptTokens Int?   // 输入 token 数量
-  completionTokens Int? // 输出 token 数量
-  totalTokens Int?   // 总 token 数量
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // 如果需要，可以添加与 Supabase Auth 用户的关联
-  // authUserId String? // Supabase Auth User ID
+  id               String   @id @default(cuid())
+  userId           String
+  role             String
+  content          String
+  model            String?
+  promptTokens     Int?
+  completionTokens Int?
+  totalTokens      Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
