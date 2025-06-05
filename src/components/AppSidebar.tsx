@@ -1,10 +1,9 @@
 "use client"
 
-import { Calendar, Home, Inbox, Search, Settings } from "lucide-react"
+import { Calendar, Home, Inbox } from "lucide-react"
 import { useEffect, useState } from "react"
 import { createClient } from "@/lib/supabase/client" // 导入客户端 Supabase 客户端
-import { User } from "@supabase/supabase-js" // 导入 User 类型
-
+import Link from 'next/link'
 import {
   Sidebar,
   SidebarContent,
@@ -36,7 +35,7 @@ const staticItems = [
 ]
 
 export function AppSidebar() {
-  const [chatHistoryItems, setChatHistoryItems] = useState([])
+  const [chatHistoryItems, setChatHistoryItems] = useState<Array<{title: string, url: string, icon: any}>>([]) // 明确类型
 
   useEffect(() => {
     const fetchChatHistory = async () => {
@@ -47,7 +46,8 @@ export function AppSidebar() {
             data: { user },
           } = await supabase.auth.getUser()
           // 使用 Prisma 获取 OpenRouterChat 数据
-          const response = await fetch('/api/get-chat?userId=' + user?.id, {
+          // 注意：这里的API调用现在只获取历史列表，不再需要userId，除非你的API设计如此
+          const response = await fetch(`/api/get-chat?userId=${user?.id}`, { // 确保API能处理仅userId的情况返回历史列表
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
@@ -57,16 +57,16 @@ export function AppSidebar() {
           const chats = await response.json();
           console.log("chats", chats);
           // 将聊天记录映射为侧边栏菜单项
-          const mappedChats = chats.map((chat) => {
-            // 取内容的前50个字符作为标题，并去除换行符
+          const mappedChats = chats.map((chat: any) => { // 为 chat 添加类型
+            // 取内容的前20个字符作为标题，并去除换行符
             const title = chat.content
               .substring(0, 20)
               .replace(/\n/g, " ")
               .trim()
             return {
-              title: title || `Chat ${chat.id.substring(0, 8)}`, // 如果内容为空，使用ID作为标题
-              url: `/chat/${chat.id}`, // 假设聊天页面路由为 /chat/:id
-              icon: Inbox, // 可以使用 Inbox 图标或其他合适的图标
+              title: title || `Chat ${chat.conversationId.substring(0, 8)}`, // 使用 conversationId 生成标题
+              url: `/chat/${chat.conversationId}`, // 确保这里是 conversationId
+              icon: Inbox, 
             }
           })
           console.log("mappedChats", mappedChats)
@@ -111,10 +111,9 @@ export function AppSidebar() {
               <SidebarMenu>
                 {chatHistoryItems.map((chatItem, index) => (
                   <SidebarMenuItem key={chatItem.url}>
-                    {" "}
                     {/* 使用 url 作为 key，确保唯一性 */}
                     <SidebarMenuButton asChild>
-                      <span>{chatItem.title}</span>
+                     <Link href={chatItem.url}>{chatItem.title}</Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
