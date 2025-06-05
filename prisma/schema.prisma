@@ -18,6 +18,7 @@ model User {
 model OpenRouterChat {
   id               String   @id @default(cuid())
   userId           String
+  conversationId   String   // 新增字段，用于区分不同的对话
   role             String
   content          String
   model            String?

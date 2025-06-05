@@ -9,6 +9,7 @@ import ChatMarkdown from '@/components/ChatMarkdown'
 import { Navbar } from '@/components/Navbar'
 import { createClient } from '@/lib/supabase/client'; // 导入客户端 Supabase 客户端
 import { User } from '@supabase/supabase-js'; // 导入 User 类型
+import { v4 as uuidv4 } from 'uuid'; // 确保您已经安装并导入了 uuid
 
 // 定义消息类型
 type Message = {
@@ -23,6 +24,7 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [currentUser, setCurrentUser] = useState<User | null>(null); // 新增：存储当前用户信息
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const supabase = createClient(); // 创建 Supabase 客户端实例
@@ -56,7 +58,7 @@ export default function ChatPage() {
 
   // 处理表单提交
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
     // 确保用户已加载且输入不为空
     if (!input.trim() || isLoading || !currentUser) {
       if (!currentUser) {
@@ -67,6 +69,16 @@ export default function ChatPage() {
     }
 
     setIsLoading(true)
+
+    let convId = currentConversationId;
+    // 如果当前没有 conversationId (表示是这个会话组件生命周期内的第一次提交，
+    // 或者我们决定为每一组新的交互创建一个新的conversationId)
+    // 并且 messages 数组为空 (表示是一个全新的对话)
+    // 或者您可以根据其他逻辑判断何时应开始新的对话并生成新的 convId
+    if (!convId || messages.length === 0) { 
+      convId = uuidv4();
+      setCurrentConversationId(convId);
+    }
 
     // 创建用户消息
     const userMessage: Message = {
@@ -158,7 +170,7 @@ export default function ChatPage() {
       }
 
       // 在接收到完整助手回复后，调用保存 API
-      if (fullAssistantContent && currentUser) { // 确保有完整内容且用户已登录
+      if (fullAssistantContent && currentUser && convId) { // 确保 convId 存在
         try {
           const saveResponse = await fetch('/api/save-chat', {
             method: 'POST',
@@ -166,9 +178,10 @@ export default function ChatPage() {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              userId: currentUser.id, // <-- 使用获取到的用户 ID
+              userId: currentUser.id,
               role: 'assistant',
               content: fullAssistantContent,
+              conversationId: convId, // <--- 使用这里的 convId
               // 您可能还需要从 OpenRouter 响应中提取并传递 model, promptTokens, completionTokens, totalTokens 等信息
               // model: '...', 
               // promptTokens: ..., 
@@ -195,6 +208,7 @@ export default function ChatPage() {
                 userId: currentUser.id, // <-- 使用获取到的用户 ID
                 role: 'user',
                 content: userMessage.content,
+                conversationId: convId, // <--- 使用这里的 convId
                 // 用户消息可能没有 model, tokens 等信息，根据您的 schema 调整
               }),
             });

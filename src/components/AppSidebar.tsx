@@ -1,10 +1,9 @@
-'use client'
+"use client"
 
 import { Calendar, Home, Inbox, Search, Settings } from "lucide-react"
 import { useEffect, useState } from "react"
-import prisma from '@/lib/prisma'; // 导入 Prisma 客户端
-import { createClient } from '@/lib/supabase/client'; // 导入客户端 Supabase 客户端
-import { User } from '@supabase/supabase-js'; // 导入 User 类型
+import { createClient } from "@/lib/supabase/client" // 导入客户端 Supabase 客户端
+import { User } from "@supabase/supabase-js" // 导入 User 类型
 
 import {
   Sidebar,
@@ -21,77 +20,71 @@ import {
 const staticItems = [
   {
     title: "Home",
-    url: "#",
+    url: "/",
     icon: Home,
   },
   {
-    title: "Inbox",
-    url: "#",
+    title: "Profile",
+    url: "/profile",
     icon: Inbox,
   },
   {
-    title: "Calendar",
-    url: "#",
-    icon: Calendar,
-  },
-  {
-    title: "Search",
-    url: "#",
-    icon: Search,
-  },
-  {
     title: "Settings",
-    url: "#",
-    icon: Settings,
+    url: "/settings",
+    icon: Calendar,
   },
 ]
 
 export function AppSidebar() {
-  const [chatHistoryItems, setChatHistoryItems] = useState([]);
-  const [currentUser, setCurrentUser] = useState<User | null>(null); // 新增：存储当前用户信息
+  const [chatHistoryItems, setChatHistoryItems] = useState([])
 
   useEffect(() => {
     const fetchChatHistory = async () => {
       try {
-        const supabase = createClient(); // 创建 Supabase 客户端实例
+        const supabase = createClient() // 创建 Supabase 客户端实例
         const fetchUser = async () => {
-          const { data: { user } } = await supabase.auth.getUser();
-          setCurrentUser(user);
-        };
-        fetchUser();
-        // 使用 Prisma 获取 OpenRouterChat 数据
-        const chats = await fetch('/api/get-chat', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            userId: currentUser?.id, // <-- 使用获取到的用户 ID
-            role: 'user',
-          }),
-        });
-
-        // 将聊天记录映射为侧边栏菜单项
-        const mappedChats = chats.map(chat => {
-          // 取内容的前50个字符作为标题，并去除换行符
-          const title = chat.content.substring(0, 50).replace(/\n/g, ' ').trim();
-          return {
-            title: title || `Chat ${chat.id.substring(0, 8)}`, // 如果内容为空，使用ID作为标题
-            url: `/chat/${chat.id}`, // 假设聊天页面路由为 /chat/:id
-            icon: Inbox, // 可以使用 Inbox 图标或其他合适的图标
-          };
-        });
-        setChatHistoryItems(mappedChats);
+          const {
+            data: { user },
+          } = await supabase.auth.getUser()
+          // 使用 Prisma 获取 OpenRouterChat 数据
+          const response = await fetch('/api/get-chat?userId=' + user?.id, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          const chats = await response.json();
+          console.log("chats", chats);
+          // 将聊天记录映射为侧边栏菜单项
+          const mappedChats = chats.map((chat) => {
+            // 取内容的前50个字符作为标题，并去除换行符
+            const title = chat.content
+              .substring(0, 20)
+              .replace(/\n/g, " ")
+              .trim()
+            return {
+              title: title || `Chat ${chat.id.substring(0, 8)}`, // 如果内容为空，使用ID作为标题
+              url: `/chat/${chat.id}`, // 假设聊天页面路由为 /chat/:id
+              icon: Inbox, // 可以使用 Inbox 图标或其他合适的图标
+            }
+          })
+          console.log("mappedChats", mappedChats)
+          setChatHistoryItems(mappedChats)
+        }
+        fetchUser()
       } catch (error) {
-        console.error('Error fetching chat history with Prisma:', error);
+        console.error("Error fetching chat history with Prisma:", error)
       }
-    };
+    }
 
-    fetchChatHistory();
-  }, []); // 空依赖数组表示只在组件挂载时运行一次
+    fetchChatHistory()
+  }, []) // 空依赖数组表示只在组件挂载时运行一次
 
   return (
-    <Sidebar className="sidebar"> {/* 添加 className="sidebar" */}
+    <Sidebar className="sidebar">
+      {" "}
+      {/* 添加 className="sidebar" */}
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>Application</SidebarGroupLabel>
@@ -117,12 +110,11 @@ export function AppSidebar() {
             <SidebarGroupContent>
               <SidebarMenu>
                 {chatHistoryItems.map((chatItem, index) => (
-                  <SidebarMenuItem key={chatItem.url}> {/* 使用 url 作为 key，确保唯一性 */}
+                  <SidebarMenuItem key={chatItem.url}>
+                    {" "}
+                    {/* 使用 url 作为 key，确保唯一性 */}
                     <SidebarMenuButton asChild>
-                      <a href={chatItem.url}>
-                        <chatItem.icon />
-                        <span>{chatItem.title}</span>
-                      </a>
+                      <span>{chatItem.title}</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}

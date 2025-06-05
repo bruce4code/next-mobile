@@ -32,7 +32,8 @@ export async function GET(request: Request) {
         createdAt: true,
         promptTokens: true,
         completionTokens: true,
-        totalTokens: true
+        totalTokens: true,
+        conversationId: true,
       },
     })
 

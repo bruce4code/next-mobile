@@ -4,7 +4,8 @@ import prisma from '@/lib/prisma'; // 假设您的 Prisma Client 实例在这里
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    // 假设 body 包含 { userId, role, content, model, promptTokens, completionTokens, totalTokens }
+    console.log(body, 'body')
+    // 假设 body 包含 { userId, role, content, model, promptTokens, completionTokens, totalTokens, conversationId }
     // 进行必要的验证
 
     const newChatMessage = await prisma.openRouterChat.create({
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
         promptTokens: body.promptTokens,
         completionTokens: body.completionTokens,
         totalTokens: body.totalTokens,
+        conversationId: body.conversationId, // 新增字段
         // authUserId: 'supabase-user-id' // 如果您使用 Supabase Auth ID
       },
     });
