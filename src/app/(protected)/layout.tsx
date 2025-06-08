@@ -20,9 +20,11 @@ export default function ProtectedLayout({
   return (
     <SidebarProvider>
       <AppSidebar />
-      <main className=" w-full h-screen overflow-auto">
+      <main className="w-full h-screen flex flex-col"   >
         <SidebarTrigger />
-        {children}
+        <div className="flex-1 overflow-y-auto" >
+          {children}
+        </div>
       </main>
     </SidebarProvider>
   )

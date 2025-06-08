@@ -28,7 +28,7 @@ export default function NewChatPage() {
   }, [supabase])
 
   return (
-    <div className="flex h-screen w-full">
+    <div className="flex w-full" style={{ height: 'calc(100vh - 30px)' }}>
       <div className="flex flex-col flex-1">
         <Navbar />
         <div className="container mx-auto max-w-4xl flex-1 p-2 py-4" style={{ height: 'calc(90vh - 80px)' }}> {/* 假设 Navbar 高度约为 80px */}

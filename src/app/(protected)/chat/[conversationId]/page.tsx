@@ -32,10 +32,10 @@ export default function ConversationChatPage() {
   }, [supabase])
 
   return (
-    <div className="flex h-screen w-full">
+    <div className="flex w-full" style={{ height: 'calc(100vh - 50px)' }}>
       <div className="flex flex-col flex-1">
         <Navbar />
-        <div className="container mx-auto max-w-4xl flex-1 p-2 py-4" style={{ height: 'calc(100vh - 80px)' }}>
+        <div className="container mx-auto max-w-4xl flex-1 p-2 py-4" style={{ height: 'calc(100vh - 100px)' }}>
           {/* currentUser 和 conversationId 都存在时才渲染 ChatPanel */}
           {currentUser !== undefined && conversationId && (
             <ChatPanel currentUser={currentUser} initialConversationId={conversationId} />
