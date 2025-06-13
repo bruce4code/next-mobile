@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import "./globals.css"
 import { Toaster } from "sonner"
+import { WebVitals } from "@/components/WebVitals"
 // 移除以下两行导入
 // import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 // import { AppSidebar } from "@/components/AppSidebar"
@@ -31,6 +32,7 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased `}>
         {/* 移除 SidebarProvider 和内部的 div 布局 */}
         {children}
+        <WebVitals /> {/* 添加 WebVitals 组件 */}
         <Toaster />
       </body>
     </html>
