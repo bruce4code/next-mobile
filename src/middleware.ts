@@ -1,27 +1,30 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) { // Uncomment this line and make it the main export
-    return await updateSession(request)
+const SUPPORTED_LOCALES = ['en', 'zh']
+const DEFAULT_LOCALE = 'en'
+
+function extractLocale(pathname: string): string {
+  const firstSegment = pathname.split('/')[1]
+  if (SUPPORTED_LOCALES.includes(firstSegment)) {
+    return firstSegment
+  }
+  return DEFAULT_LOCALE
 }
-async function updateSession(request: NextRequest) { // This can be an internal helper function
-  let supabaseResponse = NextResponse.next({
-    request,
-  })
+
+export async function middleware(request: NextRequest) {
+  let supabaseResponse = NextResponse.next({ request })
+  console.log('supabaseResponse', supabaseResponse)
 
   const supabase = createServerClient(
-    process.env.SUPABASE_URL!, // Ensure these env variables are correctly set
-    process.env.SUPABASE_ANON_KEY!, // Ensure these env variables are correctly set
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
+        getAll() { return request.cookies.getAll() },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
-          supabaseResponse = NextResponse.next({
-            request,
-          })
+          supabaseResponse = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           )
@@ -30,24 +33,24 @@ async function updateSession(request: NextRequest) { // This can be an internal 
     }
   )
 
-  // Do not run code between createServerClient and
-  // supabase.auth.getUser(). A simple mistake could make it very hard to debug
-  // issues with users being randomly logged out.
+  const { data: { user } } = await supabase.auth.getUser()
 
-  // IMPORTANT: DO NOT REMOVE auth.getUser()
+  const isLoginPath =
+    /^\/(en|zh)\/login\/?$/.test(request.nextUrl.pathname) ||
+    request.nextUrl.pathname === '/login';
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (
-    !user &&
-    !request.nextUrl.pathname.startsWith('/login') &&
-    !request.nextUrl.pathname.startsWith('/auth')
-  ) {
-    // no user, potentially respond by redirecting the user to the login page
+  // 自动修正 /login 跳转到 /en/login
+  if (request.nextUrl.pathname === '/login') {
     const url = request.nextUrl.clone()
-    url.pathname = '/login'
+    url.pathname = `/${DEFAULT_LOCALE}/login`
+    return NextResponse.redirect(url)
+  }
+
+  // 登录保护
+  if (!user && !isLoginPath && !request.nextUrl.pathname.startsWith('/auth')) {
+    const locale = extractLocale(request.nextUrl.pathname) || DEFAULT_LOCALE
+    const url = request.nextUrl.clone()
+    url.pathname = `/${locale}/login`
     return NextResponse.redirect(url)
   }
 
@@ -67,18 +70,9 @@ async function updateSession(request: NextRequest) { // This can be an internal 
   return supabaseResponse
 }
 
-// It's also good practice to include the matcher config if you haven't already
-// This was in my previous suggestion, ensure it's present or add it:
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * Feel free to modify this pattern to include more paths.
-     */
-    '/((?!api/register|_next/static|_next/image|favicon.ico|.*\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api/register|_next/static|_next/image|favicon.ico|locales|.*\\.(?:svg|png|jpg|jpeg|gif|webp|json)$).*)',
   ],
 }
 

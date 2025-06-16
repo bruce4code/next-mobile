@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useForm } from "react-hook-form"
 import { createClient } from '@/lib/supabase/client' 
-import { useRouter } from 'next/navigation' 
+import { useRouter, useParams } from 'next/navigation' 
 import { useState } from 'react' // 引入 useState
 // 移除对 prisma 的导入
 // import prisma from '@/lib/prisma'
@@ -15,6 +15,8 @@ export function LoginForm() {
   const { register, handleSubmit, formState: { errors } } = useForm()
   const supabase = createClient()
   const router = useRouter()
+  const params = useParams()
+  const locale = params.locale as string
   const [isLoginMode, setIsLoginMode] = useState(true) // 新增状态，默认为登录模式
   const [formError, setFormError] = useState<string | null>(null) // 用于显示表单级别的错误
   const [isLoading, setIsLoading] = useState(false) // 用于处理加载状态
@@ -34,7 +36,7 @@ export function LoginForm() {
           setFormError(`登录失败: ${error.message}`)
         } else {
           console.log('登录成功')
-          router.push('/') 
+          router.push(`/${locale}/chat`)
           router.refresh()
         }
       } else {

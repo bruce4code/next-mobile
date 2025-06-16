@@ -8,6 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import ChatMarkdown from '@/components/ChatMarkdown'
 import { User } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
+import { useTranslation } from 'react-i18next';
 
 // 定义消息类型
 type Message = {
@@ -22,6 +23,8 @@ interface ChatPanelProps {
 }
 
 export default function ChatPanel({ initialConversationId, currentUser }: ChatPanelProps) {
+  const { t } = useTranslation();
+  console.log("t", t)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -215,7 +218,12 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
   return (
     <Card className="h-full flex flex-col">
       <CardHeader>
-        <CardTitle>AI 聊天助手 {currentConversationId ? `(会话: ${currentConversationId.substring(0,8)})` : "(新会话)"}</CardTitle>
+        <CardTitle>
+            {t('chat_assistant_title')}{' '}
+          {currentConversationId
+            ? t('conversation_id_display', { id: currentConversationId.substring(0, 8) })
+            : t('new_conversation')}
+        </CardTitle>
       </CardHeader>
       <CardContent className="flex-1 overflow-hidden">
         <ScrollArea className="h-full pr-4">

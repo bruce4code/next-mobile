@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { User } from '@supabase/supabase-js'
 
 export default function NewChatPage() {
+  
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const supabase = createClient()
 

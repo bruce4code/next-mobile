@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { UserAvatarMenu } from './UserAvatarMenu'
 import { createClient } from '@/lib/supabase/client' // 导入 Supabase 客户端
 import { useRouter } from 'next/navigation'
+import LanguageSwitcher  from './LanguageSwitcher' // 导入 LanguageSwitcher
+import { useParams } from 'next/navigation'
 
 export function Navbar() {
   const [user, setUser] = useState<unknown>(null) // 存储用户信息的 state
@@ -38,6 +40,8 @@ export function Navbar() {
     }
   }, [supabase]) // 依赖 supabase 客户端实例
   
+  const params = useParams();
+  const locale = params.locale as string;
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut()
     if (error) {
@@ -45,7 +49,7 @@ export function Navbar() {
       alert(`登出失败: ${error.message}`)
     } else {
       console.log('用户登出成功')
-      router.push('/login') // 重定向到登录页
+      router.push(`/${locale}/login`) // 重定向到登录页
       router.refresh() // 刷新以确保服务端组件能获取到最新的会话状态
     }
   }
@@ -54,7 +58,7 @@ export function Navbar() {
     <nav className="border-b bg-background">
       <div className="container mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center">
-          <Link href="/" className="text-xl font-bold">
+          <Link href={`/${locale}`} className="text-xl font-bold">
             AI 聊天助手
           </Link>
         </div>
@@ -70,10 +74,11 @@ export function Navbar() {
               onLogout={handleLogout} 
             />
           ) : (
-            <Link href="/login" className="text-sm font-medium hover:underline">
+            <Link href={`/${locale}/login`} className="text-sm font-medium hover:underline">
               登录 / 注册
             </Link>
           )}
+          <LanguageSwitcher />
         </div>
       </div>
     </nav>
