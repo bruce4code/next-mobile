@@ -1,0 +1,5 @@
+{
+  "chat_assistant_title": "AI Chat Assistant",
+  "conversation_id_display": "(Conversation: {{id}})",
+  "new_conversation": "(New Conversation)"
+}
