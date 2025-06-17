@@ -3,7 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google"
 import "./globals.css"
 import { Toaster } from "sonner"
 import { WebVitals } from "@/components/WebVitals"
-import I18nProviderWrapper from "@/components/I18nProviderWrapper"; // 导入包装器
+import I18nProviderWrapper from "@/components/I18nProviderWrapper"
+import { getTranslation } from "@/lib/i18n.server"
 
 // 移除以下两行导入
 // import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
@@ -26,23 +27,29 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({
   children,
-  params, // Next.js 13+ App Router 会传递 params，其中包含 locale
+  params,
 }: Readonly<{
   children: React.ReactNode
-  params: { locale: string } // 添加 locale 到 params 类型
+  params: Promise<{ locale: string }> // Update type to Promise
 }>) {
+  const resolvedParams = await params; // Await params here
+  console.log('RootLayout: params.locale =', resolvedParams.locale);
+  // Re-enable getTranslation and related code
+  const { serializedResources } = await getTranslation(resolvedParams.locale, "common");
+  console.log('RootLayout: serializedResources =', serializedResources);
+
   // 如果 i18n 实例需要根据 locale 动态改变语言，可以在这里处理
   // useEffect(() => {
-  //   if (params.locale && i18n.language !== params.locale) {
-  //     i18n.changeLanguage(params.locale);
+  //   if (resolvedParams.locale && i18n.language !== resolvedParams.locale) {
+  //     i18n.changeLanguage(resolvedParams.locale);
   //   }
-  // }, [params.locale]);
+  // }, [resolvedParams.locale]);
   // 注意：上面的 useEffect 逻辑更适合放在 I18nProviderWrapper 内部，因为它是一个客户端组件
-  // 服务端获取 i18n 实例
   return (
-    <html lang={params.locale}>
+    <html lang={resolvedParams.locale}>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased `}>
-        <I18nProviderWrapper locale={params.locale}>
+        {/* Re-enable I18nProviderWrapper */}
+        <I18nProviderWrapper locale={resolvedParams.locale} initialResources={serializedResources}> 
           {children}
         </I18nProviderWrapper>
         <WebVitals />

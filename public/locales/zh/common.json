@@ -1,5 +1,13 @@
 {
   "chat_assistant_title": "AI 聊天助手",
   "conversation_id_display": "(会话: {{id}})",
-  "new_conversation": "(新会话)"
+  "new_conversation": "(新会话)",
+  "language.english": "英语",
+  "language.chinese": "中文",
+  "loading_history_messages": "正在加载历史消息...",
+  "start_new_conversation": "开始一个新的对话吧！",
+  "loading_data": "加载中...",
+  "input_your_question": "输入您的问题...",
+  "sending": "发送中...",
+  "send": "发送"
 }

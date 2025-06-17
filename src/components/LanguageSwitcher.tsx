@@ -1,34 +1,37 @@
 'use client'
 
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter, useParams } from 'next/navigation'
 import { useTranslation } from 'react-i18next'
+import { Button } from '@/components/ui/button'
 
 export default function LanguageSwitcher() {
-  const { i18n } = useTranslation()
-  const pathname = usePathname()
+  const { i18n, t } = useTranslation('common')
   const router = useRouter()
+  const pathname = usePathname()
+  const params = useParams()
+  const currentLocale = params.locale as string || i18n.language;
 
   const changeLanguage = (lng: string) => {
-    // Next.js i18n routing will handle the locale prefix
-    // We need to remove the current locale from pathname if it exists
-    const currentLocale = i18n.language;
-    let newPath = pathname;
-    if (pathname.startsWith(`/${currentLocale}`)) {
-      newPath = pathname.replace(`/${currentLocale}`, '');
-    }
-    if (newPath === '') newPath = '/'; // Handle root path
-    
-    router.push(`/${lng}${newPath}`);
+    const currentPathWithoutLocale = pathname.replace(`/${currentLocale}`, '') || '/';
+    router.push(`/${lng}${currentPathWithoutLocale}`);
   }
 
   return (
-    <div>
-      <button onClick={() => changeLanguage('en')} disabled={i18n.language === 'en'}>
-        English
-      </button>
-      <button onClick={() => changeLanguage('zh')} disabled={i18n.language === 'zh'}>
-        中文
-      </button>
+    <div className="flex space-x-2">
+      <Button
+        variant="ghost"
+        onClick={() => changeLanguage('en')}
+        disabled={currentLocale === 'en'}
+      >
+        {t('language.english')}
+      </Button>
+      <Button
+        variant="ghost"
+        onClick={() => changeLanguage('zh')}
+        disabled={currentLocale === 'zh'}
+      >
+        {t('language.chinese')}
+      </Button>
     </div>
   )
 }

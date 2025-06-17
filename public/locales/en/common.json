@@ -1,5 +1,13 @@
 {
   "chat_assistant_title": "AI Chat Assistant",
   "conversation_id_display": "(Conversation: {{id}})",
-  "new_conversation": "(New Conversation)"
+  "new_conversation": "(New Conversation)",
+  "language.english": "English",
+  "language.chinese": "中文",
+  "loading_history_messages": "Loading historical messages...",
+  "start_new_conversation": "Start a new conversation!",
+  "loading_data": "Loading...",
+  "input_your_question": "Enter your question...",
+  "sending": "Sending...",
+  "send": "Send"
 }

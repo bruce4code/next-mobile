@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, FormEvent } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
@@ -24,7 +24,6 @@ interface ChatPanelProps {
 
 export default function ChatPanel({ initialConversationId, currentUser }: ChatPanelProps) {
   const { t } = useTranslation();
-  console.log("t", t)
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -43,7 +42,7 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
             throw new Error('Failed to fetch chat history');
           }
           const historyMessages = await response.json();
-          setMessages(historyMessages.map((msg: any) => ({ // 确保类型正确
+          setMessages(historyMessages.map((msg: Message) => ({ // Ensure type is correct
             id: msg.id || uuidv4(), // 如果数据库记录没有id，则生成一个
             role: msg.role,
             content: msg.content,
@@ -67,7 +66,7 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
     setInput(e.target.value)
   }
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!input.trim() || isLoading || !currentUser) {
       if (!currentUser) console.error('用户未登录，无法发送消息。')
@@ -230,11 +229,11 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
           <div className="space-y-4">
             {messages.length === 0 && !isLoading && (
               <div className="text-center text-muted-foreground py-8">
-                {initialConversationId ? "加载历史消息中..." : "开始一个新的对话吧！"}
+                {initialConversationId ? t('loading_history_messages') : t('start_new_conversation')}
               </div>
             )}
             {isLoading && messages.length === 0 && (
-                 <div className="text-center text-muted-foreground py-8">加载中...</div>
+                 <div className="text-center text-muted-foreground py-8">{t('loading_data')}</div>
             )}
             {messages.map((message) => (
               <div
@@ -263,12 +262,12 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
           <Input
             value={input}
             onChange={handleInputChange}
-            placeholder="输入您的问题..."
+            placeholder={t('input_your_question')}
             disabled={isLoading || !currentUser} // 如果用户未登录也禁用
             className="flex-1"
           />
           <Button type="submit" disabled={isLoading || !currentUser}>
-            {isLoading ? '发送中...' : '发送'}
+            {isLoading ? t('sending') : t('send')}
           </Button>
         </form>
       </CardFooter>
