@@ -7,6 +7,10 @@ export async function GET(request: Request) {
     const userId = searchParams.get('userId')
     const conversationId = searchParams.get('conversationId')
 
+    // 添加缓存头
+    const response = NextResponse.next()
+    response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300')
+
     if (!userId && !conversationId) {
       return NextResponse.json({ error: '缺少 userId 或 conversationId 参数' }, { status: 400 })
     }
