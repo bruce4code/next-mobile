@@ -8,7 +8,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import ChatMarkdown from '@/components/ChatMarkdown'
 import { User } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
-import { useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next'
+import { cachedGetConversation } from '@/lib/cache'
 
 // 定义消息类型
 type Message = {
@@ -37,11 +38,8 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
       const fetchMessages = async () => {
         setIsLoading(true);
         try {
-          const response = await fetch(`/api/get-chat?conversationId=${initialConversationId}`);
-          if (!response.ok) {
-            throw new Error('Failed to fetch chat history');
-          }
-          const historyMessages = await response.json();
+          // 使用缓存的对话获取函数
+          const historyMessages = await cachedGetConversation(initialConversationId);
           setMessages(historyMessages.map((msg: Message) => ({ // Ensure type is correct
             id: msg.id || uuidv4(), // 如果数据库记录没有id，则生成一个
             role: msg.role,

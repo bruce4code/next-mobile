@@ -4,6 +4,7 @@ import "./globals.css"
 import { Toaster } from "sonner"
 import { WebVitals } from "@/components/WebVitals"
 import I18nProviderWrapper from "@/components/I18nProviderWrapper"
+import { UserProvider } from "@/components/UserProvider"
 import { getTranslation } from "@/lib/i18n.server"
 
 // 移除以下两行导入
@@ -50,7 +51,9 @@ export default async function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased `}>
         {/* Re-enable I18nProviderWrapper */}
         <I18nProviderWrapper locale={resolvedParams.locale} initialResources={serializedResources}> 
-          {children}
+          <UserProvider>
+            {children}
+          </UserProvider>
         </I18nProviderWrapper>
         <WebVitals />
         <Toaster />

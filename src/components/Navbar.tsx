@@ -1,44 +1,18 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React from 'react'
 import Link from 'next/link'
 import { UserAvatarMenu } from './UserAvatarMenu'
-import { createClient } from '@/lib/supabase/client' // 导入 Supabase 客户端
+import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import LanguageSwitcher  from './LanguageSwitcher' // 导入 LanguageSwitcher
+import LanguageSwitcher from './LanguageSwitcher'
 import { useParams } from 'next/navigation'
+import { useUser } from './UserProvider'
 
 export function Navbar() {
-  const [user, setUser] = useState<unknown>(null) // 存储用户信息的 state
-  const supabase = createClient() // 创建 Supabase 客户端实例
+  const { user, loading } = useUser()
+  const supabase = createClient()
   const router = useRouter()
-
-  useEffect(() => {
-    // 监听认证状态变化
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (session) {
-          // 用户已登录
-          setUser(session.user)
-        } else {
-          // 用户已登出
-          setUser(null)
-        }
-      }
-    )
-
-    // 首次加载时获取当前用户
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      setUser(user)
-    }
-    getUser()
-
-    // 清理监听器
-    return () => {
-      authListener.subscription.unsubscribe()
-    }
-  }, [supabase]) // 依赖 supabase 客户端实例
   
   const params = useParams();
   const locale = params.locale as string;
@@ -64,12 +38,14 @@ export function Navbar() {
         </div>
         
         <div className="flex items-center space-x-4">
-          {user ? (
+          {loading ? (
+            <div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse"></div>
+          ) : user ? (
             <UserAvatarMenu 
               user={{
                 name: user.user_metadata?.full_name || user.email || '用户',
                 email: user.email,
-                image: user.user_metadata?.avatar_url || '' // 假设头像URL在 user_metadata 中
+                image: user.user_metadata?.avatar_url || ''
               }} 
               onLogout={handleLogout} 
             />
