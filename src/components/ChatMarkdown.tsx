@@ -33,9 +33,7 @@ const extractText = (node: React.ReactNode): string => {
 
 const ChatMarkdown: React.FC<ChatMarkdownProps> = ({ content }) => {
   const handleCopy = (code: string) => {
-    // 确保复制的是纯文本内容
-    const textToCopy = typeof code === 'string' ? code : JSON.stringify(code, null, 2);
-    navigator.clipboard.writeText(textToCopy).then(() => {
+    navigator.clipboard.writeText(code).then(() => {
       toast.success("复制成功", {
         description: "代码已复制到剪贴板",
         duration: 2000,
@@ -53,6 +51,19 @@ const ChatMarkdown: React.FC<ChatMarkdownProps> = ({ content }) => {
       remarkPlugins={[remarkGfm]}
       rehypePlugins={[rehypeHighlight]}
       components={{
+        p: ({ children, ...props }) => {
+          const childArray = React.Children.toArray(children).filter(child => child !== '\n')
+
+          if (
+            childArray.length === 1 &&
+            React.isValidElement(childArray[0]) &&
+            childArray[0].type === 'pre'
+          ) {
+            return <>{childArray[0]}</>
+          }
+
+          return <p {...props}>{children}</p>
+        },
         a: ({ node, ...props }) => (
           <a {...props} target="_blank" rel="noopener noreferrer" />
         ),
