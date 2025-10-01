@@ -16,8 +16,10 @@ export default function I18nProviderWrapper({ children, locale, initialResources
   const i18nRef = useRef<I18nType | null>(null);
 
   if (!i18nRef.current) {
-    console.log('I18nProviderWrapper: Initializing i18n instance for locale:', locale);
-    console.log('I18nProviderWrapper: initialResources (string):', initialResources);
+    // 只在开发环境输出日志
+    if (process.env.NODE_ENV === 'development') {
+      console.log('I18nProviderWrapper: Initializing i18n instance for locale:', locale);
+    }
 
     i18nRef.current = createInstance();
     i18nRef.current
@@ -28,7 +30,7 @@ export default function I18nProviderWrapper({ children, locale, initialResources
         fallbackLng: 'en',
         supportedLngs: ['en', 'zh'],
         defaultNS: 'common',
-        ns: ['common'], // Ensure common namespace is loaded
+        ns: ['common'],
         interpolation: {
           escapeValue: false,
         },
@@ -38,26 +40,22 @@ export default function I18nProviderWrapper({ children, locale, initialResources
     if (initialResources) {
       try {
         const parsedResources = JSON.parse(initialResources);
-        console.log('I18nProviderWrapper: parsedResources:', parsedResources);
         Object.keys(parsedResources).forEach(ns => {
           if (!i18nRef.current?.hasResourceBundle(locale, ns)) {
-            console.log(`I18nProviderWrapper: Adding resource bundle for locale '${locale}', namespace '${ns}'`);
             i18nRef.current?.addResourceBundle(locale, ns, parsedResources[ns]);
-          } else {
-            console.log(`I18nProviderWrapper: Resource bundle for locale '${locale}', namespace '${ns}' already exists.`);
           }
         });
       } catch (error) {
         console.error('I18nProviderWrapper: Error parsing initialResources:', error);
       }
-    } else {
-      console.log('I18nProviderWrapper: No initialResources provided.');
     }
   }
 
   useEffect(() => {
     if (i18nRef.current && i18nRef.current.language !== locale) {
-      console.log('I18nProviderWrapper: Changing language to:', locale);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('I18nProviderWrapper: Changing language to:', locale);
+      }
       i18nRef.current.changeLanguage(locale);
     }
   }, [locale]);

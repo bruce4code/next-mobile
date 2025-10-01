@@ -1,21 +1,24 @@
-'use client'
+"use client"
 
-import React from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import React from "react"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
-import { Navbar } from "@/components/Navbar"
 
 export default function SettingsPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <Navbar />
-      
+    <div className="min-h-full bg-background">
       <div className="container mx-auto py-8 px-4">
         <h1 className="text-3xl font-bold mb-6">设置</h1>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* 应用设置 */}
           <Card>
@@ -27,15 +30,13 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label htmlFor="dark-mode">深色模式</Label>
-                  <p className="text-sm text-muted-foreground">
-                    切换深色主题
-                  </p>
+                  <p className="text-sm text-muted-foreground">切换深色主题</p>
                 </div>
                 <Switch id="dark-mode" />
               </div>
-              
+
               <Separator />
-              
+
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label htmlFor="notifications">通知</Label>
@@ -45,9 +46,9 @@ export default function SettingsPage() {
                 </div>
                 <Switch id="notifications" defaultChecked />
               </div>
-              
+
               <Separator />
-              
+
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label htmlFor="sound">声音效果</Label>
@@ -59,7 +60,7 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
-          
+
           {/* 隐私设置 */}
           <Card>
             <CardHeader>
@@ -76,9 +77,9 @@ export default function SettingsPage() {
                 </div>
                 <Switch id="history" defaultChecked />
               </div>
-              
+
               <Separator />
-              
+
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label htmlFor="analytics">使用分析</Label>
@@ -88,9 +89,9 @@ export default function SettingsPage() {
                 </div>
                 <Switch id="analytics" defaultChecked />
               </div>
-              
+
               <Separator />
-              
+
               <div className="space-y-2">
                 <h3 className="font-medium">数据管理</h3>
                 <p className="text-sm text-muted-foreground">
@@ -103,7 +104,7 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
-          
+
           {/* AI 设置 */}
           <Card>
             <CardHeader>
@@ -113,8 +114,8 @@ export default function SettingsPage() {
             <CardContent className="space-y-6">
               <div className="space-y-2">
                 <Label htmlFor="model">AI 模型</Label>
-                <select 
-                  id="model" 
+                <select
+                  id="model"
                   className="w-full p-2 rounded-md border border-input bg-background"
                 >
                   <option value="default">默认模型</option>
@@ -126,18 +127,18 @@ export default function SettingsPage() {
                   选择不同的AI模型可能会影响响应质量和速度
                 </p>
               </div>
-              
+
               <Separator />
-              
+
               <div className="space-y-2">
                 <Label htmlFor="temperature">创造性 (Temperature)</Label>
-                <input 
-                  type="range" 
-                  id="temperature" 
-                  min="0" 
-                  max="100" 
+                <input
+                  type="range"
+                  id="temperature"
+                  min="0"
+                  max="100"
                   defaultValue="70"
-                  className="w-full" 
+                  className="w-full"
                 />
                 <div className="flex justify-between text-xs text-muted-foreground">
                   <span>精确</span>
@@ -145,9 +146,9 @@ export default function SettingsPage() {
                   <span>创造性</span>
                 </div>
               </div>
-              
+
               <Separator />
-              
+
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label htmlFor="context">记忆上下文</Label>
@@ -159,7 +160,7 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
-          
+
           {/* 账户设置 */}
           <Card>
             <CardHeader>
@@ -170,17 +171,19 @@ export default function SettingsPage() {
               <div className="space-y-2">
                 <h3 className="font-medium">账户信息</h3>
                 <p className="text-sm">
-                  邮箱: zhangsan@example.com<br />
-                  会员状态: 免费用户<br />
+                  邮箱: zhangsan@example.com
+                  <br />
+                  会员状态: 免费用户
+                  <br />
                   注册时间: 2023年1月1日
                 </p>
                 <Button variant="outline" size="sm" className="mt-2">
                   升级到专业版
                 </Button>
               </div>
-              
+
               <Separator />
-              
+
               <div className="space-y-2">
                 <h3 className="font-medium">安全设置</h3>
                 <div className="flex flex-col space-y-2 sm:flex-row sm:space-y-0 sm:space-x-2">
@@ -192,9 +195,9 @@ export default function SettingsPage() {
                   </Button>
                 </div>
               </div>
-              
+
               <Separator />
-              
+
               <div className="space-y-2">
                 <h3 className="font-medium text-destructive">危险区域</h3>
                 <p className="text-sm text-muted-foreground">
@@ -207,7 +210,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </div>
-        
+
         <div className="mt-6 flex justify-end">
           <Button>保存所有设置</Button>
         </div>

@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation'
 import LanguageSwitcher from './LanguageSwitcher'
 import { useParams } from 'next/navigation'
 import { useUser } from './UserProvider'
+import { persistAuthTokens } from "@/lib/authTokens"
 
 export function Navbar() {
   const { user, loading } = useUser()
@@ -22,6 +23,7 @@ export function Navbar() {
       console.error('登出错误:', error.message)
       alert(`登出失败: ${error.message}`)
     } else {
+      persistAuthTokens(null)
       console.log('用户登出成功')
       router.push(`/${locale}/login`) // 重定向到登录页
       router.refresh() // 刷新以确保服务端组件能获取到最新的会话状态

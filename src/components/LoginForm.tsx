@@ -8,6 +8,7 @@ import { useForm } from "react-hook-form"
 import { createClient } from '@/lib/supabase/client' 
 import { useRouter, useParams } from 'next/navigation' 
 import { useState } from 'react' // 引入 useState
+import { persistAuthTokens } from "@/lib/authTokens"
 // 移除对 prisma 的导入
 // import prisma from '@/lib/prisma'
 
@@ -27,7 +28,7 @@ export function LoginForm() {
     try {
       if (isLoginMode) {
         // 登录逻辑
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data: signInData, error } = await supabase.auth.signInWithPassword({
           email: data.email,
           password: data.password,
         })
@@ -35,6 +36,7 @@ export function LoginForm() {
           console.error('登录错误:', error.message)
           setFormError(`登录失败: ${error.message}`)
         } else {
+          persistAuthTokens(signInData.session ?? null)
           console.log('登录成功')
           router.push(`/${locale}/chat`)
           router.refresh()
@@ -53,6 +55,7 @@ export function LoginForm() {
           console.error('注册错误:', error.message)
           setFormError(`注册失败: ${error.message}`)
         } else {
+          persistAuthTokens(signUpData.session ?? null)
           console.log('注册成功，请检查您的邮箱进行验证。')
 
           // 在 Supabase 注册成功后，调用 API 路由同步用户数据到 Prisma 的 User 表

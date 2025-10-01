@@ -33,11 +33,14 @@ export default async function RootLayout({
   children: React.ReactNode
   params: Promise<{ locale: string }> // Update type to Promise
 }>) {
-  const resolvedParams = await params; // Await params here
-  console.log('RootLayout: params.locale =', resolvedParams.locale);
-  // Re-enable getTranslation and related code
+  const resolvedParams = await params;
+  
+  // 只在开发环境输出日志
+  if (process.env.NODE_ENV === 'development') {
+    console.log('RootLayout: params.locale =', resolvedParams.locale);
+  }
+  
   const { serializedResources } = await getTranslation(resolvedParams.locale, "common");
-  console.log('RootLayout: serializedResources =', serializedResources);
 
   // 如果 i18n 实例需要根据 locale 动态改变语言，可以在这里处理
   // useEffect(() => {

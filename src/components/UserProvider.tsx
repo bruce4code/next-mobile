@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { User } from '@supabase/supabase-js'
 import { userCache } from '@/lib/userCache'
+import { persistAuthTokens } from "@/lib/authTokens"
 
 interface UserContextType {
   user: User | null
@@ -28,12 +29,20 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       }
 
       // 然后从服务器获取最新状态
-      const { data: { user } } = await supabase.auth.getUser()
-      setUser(user)
-      
+      const { data: { session }, error } = await supabase.auth.getSession()
+
+      if (error) {
+        throw error
+      }
+
+      persistAuthTokens(session ?? null)
+
+      const nextUser = session?.user ?? null
+      setUser(nextUser)
+
       // 更新本地缓存
-      if (user) {
-        userCache.set(user)
+      if (nextUser) {
+        userCache.set(nextUser)
       } else {
         userCache.clear()
       }
@@ -41,6 +50,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       console.error('Error fetching user:', error)
       setUser(null)
       userCache.clear()
+      persistAuthTokens(null)
     }
   }
 
@@ -50,11 +60,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
     // 监听认证状态变化
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         console.log('Auth state changed:', event, session?.user?.email)
+        persistAuthTokens(session ?? null)
         setUser(session?.user ?? null)
         setLoading(false)
-        
+
         // 更新本地缓存
         if (session?.user) {
           userCache.set(session.user)
@@ -82,4 +93,4 @@ export function useUser() {
     throw new Error('useUser must be used within a UserProvider')
   }
   return context
-} 
+}

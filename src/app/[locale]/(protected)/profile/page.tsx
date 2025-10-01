@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Navbar } from "@/components/Navbar"
 import { useState } from "react"
 
 export default function ProfilePage() {
@@ -51,9 +50,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <Navbar />
-      
+    <div className="min-h-full bg-background">
       <div className="container mx-auto py-8 px-4">
         <h1 className="text-3xl font-bold mb-6">我的个人资料</h1>
         
