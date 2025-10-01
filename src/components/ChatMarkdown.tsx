@@ -11,6 +11,26 @@ interface ChatMarkdownProps {
   content: string
 }
 
+const extractText = (node: React.ReactNode): string => {
+  if (node === null || node === undefined) {
+    return ''
+  }
+
+  if (typeof node === 'string' || typeof node === 'number') {
+    return String(node)
+  }
+
+  if (Array.isArray(node)) {
+    return node.map(extractText).join('')
+  }
+
+  if (React.isValidElement(node)) {
+    return extractText(node.props.children)
+  }
+
+  return ''
+}
+
 const ChatMarkdown: React.FC<ChatMarkdownProps> = ({ content }) => {
   const handleCopy = (code: string) => {
     // 确保复制的是纯文本内容
@@ -37,7 +57,8 @@ const ChatMarkdown: React.FC<ChatMarkdownProps> = ({ content }) => {
           <a {...props} target="_blank" rel="noopener noreferrer" />
         ),
         code: ({ node, inline, className, children, ...props }) => {
-          const code = children ? String(children).replace(/\n$/, '') : '';
+          const rawCode = extractText(children)
+          const code = rawCode.replace(/\n$/, '')
           return inline ? (
             <code className={className} {...props}>{children}</code>
           ) : (
