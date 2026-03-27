@@ -1,9 +1,7 @@
 // app/(protected)/layout.tsx (Protected Routes Layout)
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/AppSidebar"
-import { Navbar } from "@/components/Navbar"
 
 export default function ProtectedLayout({
   children,
@@ -19,15 +17,11 @@ export default function ProtectedLayout({
   // }
 
   return (
-    <SidebarProvider>
+    <div className="chatgpt-container">
       <AppSidebar />
-      <main className="w-full h-screen flex flex-col">
-        <Navbar />
-        <SidebarTrigger />
-        <div className="flex-1 overflow-y-auto">
-          {children}
-        </div>
-      </main>
-    </SidebarProvider>
+      <div className="chatgpt-main">
+        {children}
+      </div>
+    </div>
   )
 }

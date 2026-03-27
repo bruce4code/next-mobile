@@ -1,45 +1,38 @@
 "use client"
 
-import { Calendar, Home, Inbox } from "lucide-react"
+import { Calendar, Home, Inbox, Plus, MessageSquare, Settings, User, Menu, X } from "lucide-react"
 import { useEffect, useState } from "react"
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, usePathname } from 'next/navigation'
 import { useUser } from './UserProvider'
 import { cachedGetChatHistory } from '@/lib/cache'
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar"
+import { Button } from '@/components/ui/button'
 
-// Menu items. (保留原有菜单项)
+// Menu items
 const staticItems = [
   {
-    title: "Home",
+    title: "新对话",
     path: "/chat",
-    icon: Home,
+    icon: Plus,
   },
   {
-    title: "Profile",
+    title: "个人资料",
     path: "/profile",
-    icon: Inbox,
+    icon: User,
   },
   {
-    title: "Settings",
+    title: "设置",
     path: "/settings",
-    icon: Calendar,
+    icon: Settings,
   },
 ]
 
 export function AppSidebar() {
-  const [chatHistoryItems, setChatHistoryItems] = useState<Array<{title: string, url: string, icon: any}>>([])
+  const [chatHistoryItems, setChatHistoryItems] = useState<Array<{title: string, url: string, id: string}>>([])
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const { user } = useUser()
   const params = useParams()
+  const pathname = usePathname()
   const locale = params?.locale as string | undefined
 
   const withLocale = (path: string) => {
@@ -52,24 +45,28 @@ export function AppSidebar() {
     return `/${locale}${path}`
   }
 
+  const isActive = (path: string) => {
+    const fullPath = withLocale(path)
+    return pathname === fullPath
+  }
+
   useEffect(() => {
     const fetchChatHistory = async () => {
       if (!user) return
 
       try {
-        // 使用缓存的聊天历史获取函数
         const chats = await cachedGetChatHistory(user.id);
         console.log("chats", chats);
         
         const mappedChats = chats.map((chat: any) => {
           const title = chat.content
-            .substring(0, 20)
+            .substring(0, 30)
             .replace(/\n/g, " ")
             .trim()
           return {
-            title: title || `Chat ${chat.conversationId.substring(0, 8)}`,
+            title: title || `对话 ${chat.conversationId.substring(0, 8)}`,
             url: withLocale(`/chat/${chat.conversationId}`),
-            icon: Inbox, 
+            id: chat.conversationId,
           }
         })
         console.log("mappedChats", mappedChats)
@@ -80,51 +77,96 @@ export function AppSidebar() {
     }
 
     fetchChatHistory()
-  }, [user, locale]) // 依赖 user 和 locale，当状态变化时重新获取
+  }, [user, locale])
 
   return (
-    <Sidebar className="sidebar">
-      {" "}
-      {/* 添加 className="sidebar" */}
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Application</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {staticItems.map((item) => {
-                const href = withLocale(item.path)
-                return (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <Link href={href}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )})}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+    <>
+      {/* Mobile Menu Button */}
+      <div className="md:hidden fixed top-4 left-4 z-50">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="bg-background/80 backdrop-blur-sm"
+        >
+          {isMobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+        </Button>
+      </div>
 
+      {/* Mobile Overlay */}
+      {isMobileMenuOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/50 z-40"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      <div className={`chatgpt-sidebar ${isMobileMenuOpen ? 'mobile-open' : ''}`}>
+        {/* Header */}
+        <div className="sidebar-header">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+              <MessageSquare className="w-5 h-5 text-primary-foreground" />
+            </div>
+            <span className="font-semibold text-lg">AI 助手</span>
+          </div>
+          
+          {/* New Chat Button */}
+          <Button asChild className="w-full justify-start gap-2 bg-primary hover:bg-primary/90">
+            <Link href={withLocale("/chat")} onClick={() => setIsMobileMenuOpen(false)}>
+              <Plus className="w-4 h-4" />
+              新对话
+            </Link>
+          </Button>
+        </div>
+
+      {/* Content */}
+      <div className="sidebar-content">
+        {/* Chat History */}
         {chatHistoryItems.length > 0 && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Chat History</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {chatHistoryItems.map((chatItem, index) => (
-                  <SidebarMenuItem key={chatItem.url}>
-                    {/* 使用 url 作为 key，确保唯一性 */}
-                    <SidebarMenuButton asChild>
-                     <Link href={chatItem.url}>{chatItem.title}</Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          <div className="p-4">
+            <h3 className="text-sm font-medium text-muted-foreground mb-3">最近对话</h3>
+            <div className="space-y-1">
+              {chatHistoryItems.map((chatItem) => (
+                <Link
+                  key={chatItem.id}
+                  href={chatItem.url}
+                  className={`sidebar-button ${
+                    isActive(`/chat/${chatItem.id}`) ? 'sidebar-button-active' : ''
+                  }`}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  <MessageSquare className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate text-sm">{chatItem.title}</span>
+                </Link>
+              ))}
+            </div>
+          </div>
         )}
-      </SidebarContent>
-    </Sidebar>
+      </div>
+
+      {/* Footer */}
+      <div className="sidebar-footer">
+        <div className="space-y-1">
+          {staticItems.slice(1).map((item) => {
+            const href = withLocale(item.path)
+            return (
+              <Link
+                key={item.title}
+                href={href}
+                className={`sidebar-button ${
+                  isActive(item.path) ? 'sidebar-button-active' : ''
+                }`}
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                <item.icon className="w-4 h-4 flex-shrink-0" />
+                <span className="text-sm">{item.title}</span>
+              </Link>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+    </>
   )
 }

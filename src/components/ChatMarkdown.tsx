@@ -54,12 +54,20 @@ const ChatMarkdown: React.FC<ChatMarkdownProps> = ({ content }) => {
         p: ({ children, ...props }) => {
           const childArray = React.Children.toArray(children).filter(child => child !== '\n')
 
-          if (
-            childArray.length === 1 &&
-            React.isValidElement(childArray[0]) &&
-            childArray[0].type === 'pre'
-          ) {
-            return <>{childArray[0]}</>
+          if (childArray.length === 1 && React.isValidElement(childArray[0])) {
+            const element = childArray[0]
+
+            if (element.type === 'pre') {
+              return <div {...props}>{element}</div>
+            }
+
+            if (element.type === 'code') {
+              return (
+                <code {...props}>
+                  {element.props.children}
+                </code>
+              )
+            }
           }
 
           return <p {...props}>{children}</p>

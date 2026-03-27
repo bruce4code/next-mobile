@@ -213,62 +213,120 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
   }, [messages])
 
   return (
-    <Card className="h-full flex flex-col">
-      <CardHeader>
-        <CardTitle>
-            {t('chat_assistant_title')}{' '}
-          {currentConversationId
-            ? t('conversation_id_display', { id: currentConversationId.substring(0, 8) })
-            : t('new_conversation')}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full pr-4">
-          <div className="space-y-4">
-            {messages.length === 0 && !isLoading && (
-              <div className="text-center text-muted-foreground py-8">
+    <div className="flex flex-col h-full">
+      {/* Messages Area */}
+      <div className="chatgpt-messages">
+        {messages.length === 0 && !isLoading && (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center text-muted-foreground">
+              <div className="text-2xl font-semibold mb-2">欢迎使用 AI 助手</div>
+              <div className="text-sm">
                 {initialConversationId ? t('loading_history_messages') : t('start_new_conversation')}
               </div>
-            )}
-            {isLoading && messages.length === 0 && (
-                 <div className="text-center text-muted-foreground py-8">{t('loading_data')}</div>
-            )}
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`p-4 rounded-lg ${
-                  message.role === 'user'
-                    ? 'bg-primary/10 ml-auto max-w-[80%]'
-                    : 'bg-muted max-w-[80%]'
-                }`}
-              >
-                {message.role === 'user' ? (
-                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                ) : (
-                  <div className="prose prose-sm dark:prose-invert max-w-none">
-                    <ChatMarkdown content={message.content} />
-                  </div>
-                )}
-              </div>
-            ))}
-            <div ref={messagesEndRef} />
+            </div>
           </div>
-        </ScrollArea>
-      </CardContent>
-      <CardFooter>
-        <form onSubmit={handleSubmit} className="flex w-full gap-2">
-          <Input
-            value={input}
-            onChange={handleInputChange}
-            placeholder={t('input_your_question')}
-            disabled={isLoading || !currentUser} // 如果用户未登录也禁用
-            className="flex-1"
-          />
-          <Button type="submit" disabled={isLoading || !currentUser}>
-            {isLoading ? t('sending') : t('send')}
-          </Button>
-        </form>
-      </CardFooter>
-    </Card>
+        )}
+            {isLoading && messages.length === 0 && (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center text-muted-foreground">
+                  <div className="text-lg">{t('loading_data')}</div>
+                </div>
+              </div>
+            )}
+            {isLoading && messages.length > 0 && (
+              <div className="chatgpt-message">
+                <div className="chatgpt-message-avatar chatgpt-message-avatar-assistant">
+                  AI
+                </div>
+                <div className="chatgpt-message-content chatgpt-message-content-assistant">
+                  <div className="flex items-center gap-1">
+                    <span className="typing-indicator"></span>
+                    <span className="typing-indicator"></span>
+                    <span className="typing-indicator"></span>
+                  </div>
+                </div>
+              </div>
+            )}
+        {messages.map((message) => (
+          <div
+            key={message.id}
+            className={`chatgpt-message ${
+              message.role === 'user' ? 'chatgpt-message-user' : ''
+            }`}
+          >
+            <div
+              className={`chatgpt-message-avatar ${
+                message.role === 'user'
+                  ? 'chatgpt-message-avatar-user'
+                  : 'chatgpt-message-avatar-assistant'
+              }`}
+            >
+              {message.role === 'user' ? 'U' : 'AI'}
+            </div>
+            <div
+              className={`chatgpt-message-content ${
+                message.role === 'user'
+                  ? 'chatgpt-message-content-user'
+                  : 'chatgpt-message-content-assistant'
+              }`}
+            >
+              {message.role === 'user' ? (
+                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+              ) : (
+                <div className="prose prose-sm dark:prose-invert max-w-none">
+                  <ChatMarkdown content={message.content} />
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input Area */}
+      <div className="chatgpt-input-container">
+        <div className="chatgpt-input-wrapper">
+          <form onSubmit={handleSubmit} className="chatgpt-input-form">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={t('input_your_question')}
+              disabled={isLoading || !currentUser}
+              className="chatgpt-input"
+              rows={1}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSubmit(e)
+                }
+              }}
+            />
+            <button
+              type="submit"
+              disabled={isLoading || !currentUser || !input.trim()}
+              className="chatgpt-send-button"
+            >
+              {isLoading ? (
+                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="m22 2-7 20-4-9-9-4Z" />
+                  <path d="M22 2 11 13" />
+                </svg>
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
   )
 }
