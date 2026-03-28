@@ -15,7 +15,7 @@ const DEFAULT_MODEL_CANDIDATES = [
   "z-ai/glm-4.5-air",
 ]
 
-const ENABLE_RAG = process.env.ENABLE_RAG !== 'false'
+const ENABLE_RAG = true
 
 type SSETransformOptions = {
   attemptedModel: string
@@ -118,37 +118,56 @@ export async function POST(req: Request) {
 
   let enhancedMessages = messages as Message[]
 
+  console.log('🔍 Chat API 被调用')
+  console.log('  - ENABLE_RAG:', ENABLE_RAG)
+  console.log('  - useRAG:', useRAG)
+  console.log('  - messages 数量:', messages.length)
+
   if (ENABLE_RAG && useRAG) {
     try {
-      const user = await getUser()
-      if (user) {
-        const lastUserMessage = [...enhancedMessages].reverse().find(
-          (msg) => msg.role === 'user'
-        )
+      console.log('✅ 进入 RAG 流程')
+      
+      const lastUserMessage = [...enhancedMessages].reverse().find(
+        (msg) => msg.role === 'user'
+      )
+      console.log('  - lastUserMessage:', lastUserMessage ? '找到' : '未找到')
 
-        if (lastUserMessage?.content) {
-          console.log('使用 RAG 搜索相关文档...')
+      if (lastUserMessage?.content) {
+        console.log('🧠 使用 RAG 搜索相关文档, 查询:', lastUserMessage.content.substring(0, 100) + '...')
+        
+        try {
           const similarDocs = await searchSimilarDocuments(
             lastUserMessage.content,
-            { topK: 3 }
+            { topK: 5 }
           )
 
           if (similarDocs.length > 0) {
-            console.log(`找到 ${similarDocs.length} 个相关文档`)
-            const ragContext = buildRAGContext(
-              similarDocs.map(doc => ({ title: doc.title, content: doc.content }))
-            )
+            console.log(`✅ 找到 ${similarDocs.length} 个相关文档:`)
+            similarDocs.forEach((doc, index) => {
+              const similarity = doc.similarity ? ` (相似度: ${(doc.similarity * 100).toFixed(1)}%)` : ''
+              console.log(`  ${index + 1}. ${doc.title}${similarity}`)
+            })
+            
+            const ragContext = buildRAGContext(similarDocs)
 
             enhancedMessages = [
               { role: 'system', content: ragContext },
               ...messages,
             ]
+            
+            console.log('📚 RAG 上下文已添加到对话中')
+          } else {
+            console.log('❌ 没有找到相关文档，使用普通对话模式')
           }
+        } catch (searchError) {
+          console.warn('⚠️ RAG 搜索出错（可能是网络问题），跳过 RAG:', searchError)
         }
       }
     } catch (ragError) {
-      console.error('RAG 搜索失败，回退到普通对话:', ragError)
+      console.error('❌ RAG 流程失败，回退到普通对话:', ragError)
     }
+  } else {
+    console.log('❌ RAG 未启用，使用普通对话模式')
   }
 
   const modelsToTry = resolveModelCandidates()

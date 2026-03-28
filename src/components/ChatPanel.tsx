@@ -152,6 +152,7 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: apiMessages,
+          useRAG: true,
           // 如果API需要，也可以传递 conversationId
           // conversationId: convId 
         }),

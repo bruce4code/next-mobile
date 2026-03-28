@@ -24,6 +24,7 @@ interface Document {
   metadata?: Record<string, unknown>
   createdAt: string
   updatedAt: string
+  similarity?: number
 }
 
 const CATEGORIES = [
@@ -184,9 +185,17 @@ export default function KnowledgePage() {
     
     try {
       setIsLoading(true)
-      const response = await fetch(`/api/documents?q=${encodeURIComponent(searchQuery)}&topK=10`)
+      const params = new URLSearchParams()
+      params.set('search', searchQuery)
+      if (selectedCategory !== 'all') {
+        params.set('category', selectedCategory)
+      }
+      
+      console.log('执行向量搜索, 参数:', params.toString())
+      const response = await fetch(`/api/documents?${params.toString()}`)
       if (!response.ok) throw new Error('搜索失败')
       const data = await response.json()
+      console.log('向量搜索结果:', data)
       setDocuments(data)
     } catch (error) {
       console.error('搜索失败:', error)
@@ -217,10 +226,7 @@ export default function KnowledgePage() {
     )
   }
 
-  const filteredDocuments = documents.filter(doc =>
-    doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    doc.content.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const filteredDocuments = documents
 
   if (isLoading) {
     return (
@@ -403,6 +409,11 @@ export default function KnowledgePage() {
                                 <Badge variant="outline" className="text-xs">
                                   {doc.contentType}
                                 </Badge>
+                                {doc.similarity !== undefined && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    相似度: {(doc.similarity * 100).toFixed(1)}%
+                                  </Badge>
+                                )}
                               </div>
                             </div>
                             <div className="flex items-center gap-2 ml-4">
@@ -474,9 +485,16 @@ export default function KnowledgePage() {
                     <div className="px-6 pb-4">
                       <Separator className="mb-4" />
                       <div className="flex items-center justify-between">
-                        <span className="text-xs text-muted-foreground">
-                          {formatDate(doc.updatedAt)}
-                        </span>
+                        <div className="flex flex-col">
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(doc.updatedAt)}
+                          </span>
+                          {doc.similarity !== undefined && (
+                            <Badge variant="secondary" className="text-xs mt-1 w-fit">
+                              相似度: {(doc.similarity * 100).toFixed(1)}%
+                            </Badge>
+                          )}
+                        </div>
                         <div className="flex gap-2">
                           <Button
                             variant="ghost"
