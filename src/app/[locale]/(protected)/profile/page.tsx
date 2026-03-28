@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -32,10 +33,11 @@ export default function ProfilePage() {
   })
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const pathname = usePathname()
 
   useEffect(() => {
     fetchUserProfile()
-  }, [])
+  }, [pathname])
 
   const fetchUserProfile = async () => {
     try {

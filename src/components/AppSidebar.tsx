@@ -150,6 +150,13 @@ export function AppSidebar() {
         <div className="space-y-1">
           {staticItems.slice(1).map((item) => {
             const href = withLocale(item.path)
+            const handleClick = (e: React.MouseEvent) => {
+              setIsMobileMenuOpen(false)
+              // 如果是个人资料页面，刷新用户信息
+              if (item.path === '/profile') {
+                // 可以在这里添加刷新逻辑
+              }
+            }
             return (
               <Link
                 key={item.title}
@@ -157,7 +164,7 @@ export function AppSidebar() {
                 className={`sidebar-button ${
                   isActive(item.path) ? 'sidebar-button-active' : ''
                 }`}
-                onClick={() => setIsMobileMenuOpen(false)}
+                onClick={handleClick}
               >
                 <item.icon className="w-4 h-4 flex-shrink-0" />
                 <span className="text-sm">{item.title}</span>
