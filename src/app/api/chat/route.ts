@@ -1,4 +1,6 @@
 import OpenAI from "openai"
+import { getUser } from '@/app/auth/server'
+import { searchSimilarDocuments, buildRAGContext } from '@/lib/rag'
 
 // 初始化 OpenRouter 客户端
 const openai = new OpenAI({
@@ -13,8 +15,15 @@ const DEFAULT_MODEL_CANDIDATES = [
   "z-ai/glm-4.5-air",
 ]
 
+const ENABLE_RAG = process.env.ENABLE_RAG !== 'false'
+
 type SSETransformOptions = {
   attemptedModel: string
+}
+
+interface Message {
+  role: string
+  content: string
 }
 
 function createSseTransform({ attemptedModel }: SSETransformOptions) {
@@ -86,7 +95,7 @@ function isAuthOrKeyError(error: unknown) {
 }
 
 export async function POST(req: Request) {
-  let body: { messages?: unknown }
+  let body: { messages?: unknown; useRAG?: boolean }
 
   try {
     body = await req.json()
@@ -98,13 +107,48 @@ export async function POST(req: Request) {
     )
   }
 
-  const { messages } = body
+  const { messages, useRAG = true } = body
 
   if (!Array.isArray(messages)) {
     return new Response(
       JSON.stringify({ error: "messages 字段必须是数组" }),
       { status: 400, headers: { "Content-Type": "application/json" } },
     )
+  }
+
+  let enhancedMessages = messages as Message[]
+
+  if (ENABLE_RAG && useRAG) {
+    try {
+      const user = await getUser()
+      if (user) {
+        const lastUserMessage = [...enhancedMessages].reverse().find(
+          (msg) => msg.role === 'user'
+        )
+
+        if (lastUserMessage?.content) {
+          console.log('使用 RAG 搜索相关文档...')
+          const similarDocs = await searchSimilarDocuments(
+            lastUserMessage.content,
+            { topK: 3 }
+          )
+
+          if (similarDocs.length > 0) {
+            console.log(`找到 ${similarDocs.length} 个相关文档`)
+            const ragContext = buildRAGContext(
+              similarDocs.map(doc => ({ title: doc.title, content: doc.content }))
+            )
+
+            enhancedMessages = [
+              { role: 'system', content: ragContext },
+              ...messages,
+            ]
+          }
+        }
+      }
+    } catch (ragError) {
+      console.error('RAG 搜索失败，回退到普通对话:', ragError)
+    }
   }
 
   const modelsToTry = resolveModelCandidates()
@@ -115,7 +159,7 @@ export async function POST(req: Request) {
       console.log("请求 OpenRouter 模型:", model)
       const response = await openai.chat.completions.create({
         model,
-        messages,
+        messages: enhancedMessages,
         stream: true,
       })
 

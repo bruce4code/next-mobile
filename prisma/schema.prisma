@@ -7,6 +7,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// pgvector 扩展支持
+model Document {
+  id          String   @id @default(uuid())
+  userId      String?
+  title       String
+  content     String
+  contentType String   @default("text") // text, markdown, pdf
+  category    String?  // product, faq, policy, order, promotion, review
+  metadata    Json?    // 额外的元数据
+  embedding   Unsupported("vector(1536)")?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([category])
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
