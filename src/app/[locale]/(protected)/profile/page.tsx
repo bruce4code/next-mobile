@@ -1,6 +1,6 @@
 'use client'
 
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -8,21 +8,102 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useState } from "react"
+import { toast } from "sonner"
+
+interface UserProfile {
+  id: string
+  email: string
+  name: string | null
+  bio: string | null
+  avatarUrl: string | null
+  location: string | null
+  createdAt: string
+}
 
 export default function ProfilePage() {
-  // 模拟用户数据 - 实际应用中应从API或认证服务获取
-  const [user, setUser] = useState({
-    name: '张三',
-    email: 'zhangsan@example.com',
-    image: '',
-    bio: '热爱AI和技术的开发者',
-    location: '北京',
-    joinDate: '2023年1月'
+  const [user, setUser] = useState<UserProfile | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [editUser, setEditUser] = useState({
+    name: '',
+    bio: '',
+    location: '',
+    avatarUrl: '',
   })
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
 
-  // 获取用户名首字母作为头像备用显示
-  const getInitials = (name: string) => {
+  useEffect(() => {
+    fetchUserProfile()
+  }, [])
+
+  const fetchUserProfile = async () => {
+    try {
+      const response = await fetch('/api/user')
+      if (!response.ok) throw new Error('获取用户资料失败')
+      const data = await response.json()
+      setUser(data)
+      setEditUser({
+        name: data.name || '',
+        bio: data.bio || '',
+        location: data.location || '',
+        avatarUrl: data.avatarUrl || '',
+      })
+    } catch (error) {
+      console.error('获取用户资料失败:', error)
+      toast.error('获取用户资料失败')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const resetForm = () => {
+    if (user) {
+      setEditUser({
+        name: user.name || '',
+        bio: user.bio || '',
+        location: user.location || '',
+        avatarUrl: user.avatarUrl || '',
+      })
+      setAvatarPreview(null)
+      toast.info('已重置为原始值')
+    }
+  }
+
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        toast.error('图片大小不能超过 2MB')
+        return
+      }
+      
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const result = event.target?.result as string
+        setAvatarPreview(result)
+        setEditUser(prev => ({
+          ...prev,
+          avatarUrl: result,
+        }))
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const clearAvatar = () => {
+    setAvatarPreview(null)
+    setEditUser(prev => ({
+      ...prev,
+      avatarUrl: '',
+    }))
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const getInitials = (name: string | null) => {
+    if (!name) return 'U'
     return name
       .split(' ')
       .map(n => n[0])
@@ -31,22 +112,56 @@ export default function ProfilePage() {
       .substring(0, 2)
   }
 
-  // 处理个人资料更新
-  const handleProfileUpdate = (e: React.FormEvent) => {
-    e.preventDefault()
-    // 这里应该有保存个人资料的逻辑
-    console.log('保存个人资料', user)
-    // 显示成功消息
-    alert('个人资料已更新')
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    })
   }
 
-  // 处理输入变化
+  const handleProfileUpdate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsSaving(true)
+    
+    try {
+      const response = await fetch('/api/user', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editUser),
+      })
+      
+      if (!response.ok) throw new Error('保存失败')
+      
+      const updatedUser = await response.json()
+      setUser(updatedUser)
+      toast.success('个人资料已更新')
+    } catch (error) {
+      console.error('保存个人资料失败:', error)
+      toast.error('保存个人资料失败')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
-    setUser(prev => ({
+    setEditUser(prev => ({
       ...prev,
       [name]: value
     }))
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-full bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p>加载中...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -55,33 +170,31 @@ export default function ProfilePage() {
         <h1 className="text-3xl font-bold mb-6">我的个人资料</h1>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* 左侧个人资料卡片 */}
           <Card className="md:col-span-1">
             <CardHeader className="flex flex-col items-center">
               <Avatar className="h-24 w-24 mb-4">
-                <AvatarImage src={user.image} alt={user.name} />
-                <AvatarFallback className="text-2xl">{getInitials(user.name)}</AvatarFallback>
+                <AvatarImage src={user?.avatarUrl || ''} alt={user?.name || '用户'} />
+                <AvatarFallback className="text-2xl">{getInitials(user?.name)}</AvatarFallback>
               </Avatar>
-              <CardTitle className="text-xl">{user.name}</CardTitle>
-              <CardDescription>{user.email}</CardDescription>
+              <CardTitle className="text-xl">{user?.name || '未设置'}</CardTitle>
+              <CardDescription>{user?.email}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">个人简介</p>
-                <p>{user.bio}</p>
+                <p>{user?.bio || '未设置'}</p>
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">位置</p>
-                <p>{user.location}</p>
+                <p>{user?.location || '未设置'}</p>
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">加入时间</p>
-                <p>{user.joinDate}</p>
+                <p>{user?.createdAt ? formatDate(user.createdAt) : '未知'}</p>
               </div>
             </CardContent>
           </Card>
           
-          {/* 右侧编辑区域 */}
           <Card className="md:col-span-2">
             <CardHeader>
               <CardTitle>编辑个人资料</CardTitle>
@@ -102,7 +215,7 @@ export default function ProfilePage() {
                         <Input 
                           id="name" 
                           name="name" 
-                          value={user.name} 
+                          value={editUser.name} 
                           onChange={handleInputChange} 
                         />
                       </div>
@@ -112,8 +225,7 @@ export default function ProfilePage() {
                           id="email" 
                           name="email" 
                           type="email" 
-                          value={user.email} 
-                          onChange={handleInputChange} 
+                          value={user?.email || ''} 
                           disabled 
                         />
                       </div>
@@ -124,7 +236,7 @@ export default function ProfilePage() {
                       <textarea 
                         id="bio" 
                         name="bio" 
-                        value={user.bio} 
+                        value={editUser.bio} 
                         onChange={handleInputChange} 
                         className="w-full min-h-[100px] p-2 rounded-md border border-input bg-background"
                       />
@@ -136,23 +248,76 @@ export default function ProfilePage() {
                         <Input 
                           id="location" 
                           name="location" 
-                          value={user.location} 
+                          value={editUser.location} 
                           onChange={handleInputChange} 
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="image">头像URL</Label>
-                        <Input 
-                          id="image" 
-                          name="image" 
-                          value={user.image} 
-                          onChange={handleInputChange} 
-                          placeholder="https://example.com/avatar.jpg" 
-                        />
+                        <Label>头像</Label>
+                        <div className="flex items-start gap-4">
+                          <div className="flex flex-col items-center gap-2">
+                            {(avatarPreview || editUser.avatarUrl) && (
+                              <div className="relative">
+                                <Avatar className="h-20 w-20">
+                                  <AvatarImage src={avatarPreview || editUser.avatarUrl || ''} alt="头像预览" />
+                                  <AvatarFallback>{getInitials(editUser.name || user?.name)}</AvatarFallback>
+                                </Avatar>
+                                <button
+                                  type="button"
+                                  onClick={clearAvatar}
+                                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center hover:bg-red-600 transition-colors text-sm"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            )}
+                            <input
+                              ref={fileInputRef}
+                              type="file"
+                              accept="image/*"
+                              onChange={handleAvatarChange}
+                              className="hidden"
+                              id="avatar-upload"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => fileInputRef.current?.click()}
+                            >
+                              上传图片
+                            </Button>
+                          </div>
+                          <div className="flex-1 space-y-2">
+                            <Label htmlFor="avatarUrl">或输入头像URL</Label>
+                            <Input 
+                              id="avatarUrl" 
+                              name="avatarUrl" 
+                              value={editUser.avatarUrl} 
+                              onChange={handleInputChange} 
+                              placeholder="https://example.com/avatar.jpg" 
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              支持 JPG、PNG、GIF，最大 2MB
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                     
-                    <Button type="submit" className="mt-4">保存更改</Button>
+                    <div className="flex gap-2 mt-4">
+                      <Button type="submit" disabled={isSaving}>
+                        {isSaving ? '保存中...' : '保存更改'}
+                      </Button>
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        onClick={resetForm}
+                        disabled={isSaving}
+                      >
+                        重置
+                      </Button>
+                    </div>
                   </form>
                 </TabsContent>
                 
@@ -169,7 +334,6 @@ export default function ProfilePage() {
                             <p className="text-sm text-muted-foreground">启用深色主题</p>
                           </div>
                           <div>
-                            {/* 这里可以添加一个开关组件 */}
                             <Button variant="outline" size="sm">切换</Button>
                           </div>
                         </div>
@@ -191,39 +355,6 @@ export default function ProfilePage() {
                 </TabsContent>
               </Tabs>
             </CardContent>
-          </Card>
-          
-          {/* 聊天历史卡片 */}
-          <Card className="md:col-span-3">
-            <CardHeader>
-              <CardTitle>最近的聊天记录</CardTitle>
-              <CardDescription>查看您最近的AI对话</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {/* 这里可以循环显示聊天历史 */}
-                <div className="p-4 border rounded-lg">
-                  <div className="flex justify-between items-center mb-2">
-                    <h3 className="font-medium">关于机器学习的讨论</h3>
-                    <span className="text-sm text-muted-foreground">2023年12月15日</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground">最后一条消息: 神经网络如何处理图像数据...</p>
-                  <Button variant="outline" size="sm" className="mt-2">继续对话</Button>
-                </div>
-                
-                <div className="p-4 border rounded-lg">
-                  <div className="flex justify-between items-center mb-2">
-                    <h3 className="font-medium">Python编程问题</h3>
-                    <span className="text-sm text-muted-foreground">2023年12月10日</span>
-                  </div>
-                  <p className="text-sm text-muted-foreground">最后一条消息: 如何优化数据处理管道...</p>
-                  <Button variant="outline" size="sm" className="mt-2">继续对话</Button>
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button variant="outline" className="w-full">查看所有聊天历史</Button>
-            </CardFooter>
           </Card>
         </div>
       </div>

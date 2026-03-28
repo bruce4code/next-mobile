@@ -51,25 +51,21 @@ const ChatMarkdown: React.FC<ChatMarkdownProps> = ({ content }) => {
       remarkPlugins={[remarkGfm]}
       rehypePlugins={[rehypeHighlight]}
       components={{
-        p: ({ children, ...props }) => {
-          const childArray = React.Children.toArray(children).filter(child => child !== '\n')
-
-          if (childArray.length === 1 && React.isValidElement(childArray[0])) {
-            const element = childArray[0]
-
-            if (element.type === 'pre') {
-              return <div {...props}>{element}</div>
+        p: ({ node, children, ...props }) => {
+          const hasBlockElement = (node: any): boolean => {
+            if (node?.tagName === 'pre') {
+              return true
             }
-
-            if (element.type === 'code') {
-              return (
-                <code {...props}>
-                  {element.props.children}
-                </code>
-              )
+            if (node?.children) {
+              return node.children.some(hasBlockElement)
             }
+            return false
           }
-
+          
+          if (hasBlockElement(node)) {
+            return <div {...props}>{children}</div>
+          }
+          
           return <p {...props}>{children}</p>
         },
         a: ({ node, ...props }) => (

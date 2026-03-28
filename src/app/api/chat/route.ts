@@ -7,11 +7,10 @@ const openai = new OpenAI({
 })
 
 const DEFAULT_MODEL_CANDIDATES = [
-  "deepseek/deepseek-chat-v3-0324:free",
-  "google/gemini-flash-1.5-8b:free",
-  "meta-llama/llama-3.1-8b-instruct:free",
-  "qwen/qwen2.5-7b-instruct:free",
-  "mistralai/mistral-7b-instruct:free",
+  "stepfun/step-3.5-flash",
+  "nvidia/nemotron-3-super",
+  "arcee-ai/trinity-large-preview",
+  "z-ai/glm-4.5-air",
 ]
 
 type SSETransformOptions = {

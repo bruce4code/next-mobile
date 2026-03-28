@@ -11,10 +11,15 @@ import { v4 as uuidv4 } from 'uuid'
 import { useTranslation } from 'react-i18next'
 import { cachedGetConversation } from '@/lib/cache'
 
+// 定义消息内容类型
+type MessageContent = string | { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+
 // 定义消息类型
 type Message = {
   role: 'user' | 'assistant'
-  content: string
+  content: string | MessageContent[]
+  displayContent: string
+  imageUrl?: string
   id?: string
 }
 
@@ -29,7 +34,9 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(initialConversationId || null)
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // 当 initialConversationId 变化时 (例如从 URL 参数加载)，或者组件首次加载时获取历史消息
   useEffect(() => {
@@ -40,10 +47,11 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
         try {
           // 使用缓存的对话获取函数
           const historyMessages = await cachedGetConversation(initialConversationId);
-          setMessages(historyMessages.map((msg: Message) => ({ // Ensure type is correct
+          setMessages(historyMessages.map((msg: any) => ({ // Ensure type is correct
             id: msg.id || uuidv4(), // 如果数据库记录没有id，则生成一个
             role: msg.role,
             content: msg.content,
+            displayContent: typeof msg.content === 'string' ? msg.content : '',
           })));
         } catch (error) {
           console.error(error);
@@ -60,13 +68,31 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
     }
   }, [initialConversationId]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        setSelectedImage(event.target?.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const clearImage = () => {
+    setSelectedImage(null)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!input.trim() || isLoading || !currentUser) {
+    if ((!input.trim() && !selectedImage) || isLoading || !currentUser) {
       if (!currentUser) console.error('用户未登录，无法发送消息。')
       return
     }
@@ -79,16 +105,53 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
       setCurrentConversationId(convId) // 设置新的 conversationId
     }
 
-    const userMessage: Message = { role: 'user', content: input, id: uuidv4() }
+    // 构建用户消息内容
+    let userContent: string | MessageContent[]
+    let userDisplayContent: string
+
+    if (selectedImage && input.trim()) {
+      // 既有图片又有文本
+      userContent = [
+        { type: 'text', text: input },
+        { type: 'image_url', image_url: { url: selectedImage } }
+      ]
+      userDisplayContent = input
+    } else if (selectedImage) {
+      // 只有图片
+      userContent = [{ type: 'image_url', image_url: { url: selectedImage } }]
+      userDisplayContent = '[图片]'
+    } else {
+      // 只有文本
+      userContent = input
+      userDisplayContent = input
+    }
+
+    const userMessage: Message = { 
+      role: 'user', 
+      content: userContent, 
+      displayContent: userDisplayContent,
+      imageUrl: selectedImage || undefined,
+      id: uuidv4() 
+    }
     setMessages(prev => [...prev, userMessage])
     setInput('')
+    clearImage()
 
     try {
+      // 准备发送到 API 的消息
+      const apiMessages = [...messages.map(msg => ({
+        role: msg.role,
+        content: typeof msg.content === 'string' ? msg.content : msg.content
+      })), {
+        role: 'user',
+        content: userContent
+      }]
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: [...messages, userMessage].map(({ role, content }) => ({ role, content })),
+          messages: apiMessages,
           // 如果API需要，也可以传递 conversationId
           // conversationId: convId 
         }),
@@ -96,7 +159,12 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
 
       if (!response.ok) throw new Error(`请求失败: ${response.status}`)
 
-      const assistantMessage: Message = { role: 'assistant', content: '', id: uuidv4() }
+      const assistantMessage: Message = { 
+        role: 'assistant', 
+        content: '', 
+        displayContent: '',
+        id: uuidv4() 
+      }
       setMessages(prev => [...prev, assistantMessage])
 
       const reader = response.body?.getReader()
@@ -123,6 +191,7 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
                 content = '```json\n' + JSON.stringify(content, null, 2) + '\n```'
               }
               assistantMessage.content += content
+              assistantMessage.displayContent += content
               fullAssistantContent += content
               setMessages(prev => prev.map(m => m.id === assistantMessage.id ? { ...assistantMessage } : m))
             }
@@ -271,10 +340,19 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
               }`}
             >
               {message.role === 'user' ? (
-                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                <div>
+                  {message.imageUrl && (
+                    <img 
+                      src={message.imageUrl} 
+                      alt="用户上传的图片" 
+                      className="max-w-xs max-h-48 rounded-lg mb-2 object-contain"
+                    />
+                  )}
+                  <p className="text-sm whitespace-pre-wrap">{message.displayContent}</p>
+                </div>
               ) : (
                 <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <ChatMarkdown content={message.content} />
+                  <ChatMarkdown content={typeof message.content === 'string' ? message.content : ''} />
                 </div>
               )}
             </div>
@@ -286,10 +364,55 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
       {/* Input Area */}
       <div className="chatgpt-input-container">
         <div className="chatgpt-input-wrapper">
+          {selectedImage && (
+            <div className="relative mb-2 inline-block">
+              <img 
+                src={selectedImage} 
+                alt="预览图片" 
+                className="max-w-24 max-h-24 rounded-lg object-contain"
+              />
+              <button
+                type="button"
+                onClick={clearImage}
+                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center hover:bg-red-600 transition-colors"
+              >
+                ×
+              </button>
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="chatgpt-input-form">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleImageUpload}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading || !currentUser}
+              className="chatgpt-image-button p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+              title="上传图片"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+            </button>
             <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={handleInputChange}
               placeholder={t('input_your_question')}
               disabled={isLoading || !currentUser}
               className="chatgpt-input"
@@ -303,7 +426,7 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
             />
             <button
               type="submit"
-              disabled={isLoading || !currentUser || !input.trim()}
+              disabled={isLoading || !currentUser || (!input.trim() && !selectedImage)}
               className="chatgpt-send-button"
             >
               {isLoading ? (
