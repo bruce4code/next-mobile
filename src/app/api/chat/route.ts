@@ -144,18 +144,30 @@ export async function POST(req: Request) {
           if (similarDocs.length > 0) {
             console.log(`✅ 找到 ${similarDocs.length} 个相关文档:`)
             similarDocs.forEach((doc, index) => {
+              console.log(`  ${index + 1}. ${doc.title}: ${doc.content.substring(0, 80)}`)
               const similarity = doc.similarity ? ` (相似度: ${(doc.similarity * 100).toFixed(1)}%)` : ''
-              console.log(`  ${index + 1}. ${doc.title}${similarity}`)
+              console.log(`    相似度${similarity}`)
             })
             
             const ragContext = buildRAGContext(similarDocs)
 
-            enhancedMessages = [
-              { role: 'system', content: ragContext },
-              ...messages,
-            ]
+            const lastUserIndex = messages.findLastIndex(
+              (msg) => msg.role === 'user'
+            )
+            if (lastUserIndex >= 0) {
+              enhancedMessages = [
+                ...messages.slice(0, lastUserIndex),
+                { role: 'system', content: ragContext },
+                ...messages.slice(lastUserIndex),
+              ]
+            } else {
+              enhancedMessages = [
+                { role: 'system', content: ragContext },
+                ...messages,
+              ]
+            }
             
-            console.log('📚 RAG 上下文已添加到对话中')
+            console.log('📚 RAG 上下文已添加到对话中（位置：用户消息之前）')
           } else {
             console.log('❌ 没有找到相关文档，使用普通对话模式')
           }
