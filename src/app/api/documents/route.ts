@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getUser } from '@/app/auth/server'
 import prisma from '@/lib/prisma'
 import { generateEmbedding } from '@/lib/embedding'
+import { chunkDocument } from '@/lib/chunking'
 
 export async function GET(req: NextRequest) {
   try {
@@ -140,6 +141,28 @@ export async function POST(req: NextRequest) {
     })
 
     console.log('文档创建成功:', result?.id)
+
+    // 自动分块并生成每个块的 embedding
+    try {
+      const chunks = chunkDocument(title, content, contentType || 'text')
+      console.log(`📦 文档 "${title}" 分为 ${chunks.length} 块`)
+      for (const chunk of chunks) {
+        try {
+          const chunkEmbedding = await generateEmbedding(chunk.title + '\n' + chunk.content)
+          const embeddingString = `[${chunkEmbedding.join(',')}]`
+          await prisma.$executeRaw`
+            INSERT INTO "DocumentChunk" ("id", "documentId", "title", "content", "chunkIndex", "embedding", "createdAt")
+            VALUES (${crypto.randomUUID()}, ${docId}, ${chunk.title}, ${chunk.content}, ${chunk.index}, ${embeddingString}::vector, NOW())
+          `
+        } catch (chunkError) {
+          console.warn(`⚠️ 分块 ${chunk.index} 生成失败，跳过:`, chunkError)
+        }
+      }
+      console.log(`✅ 文档 "${title}" 分块完成`)
+    } catch (chunkError) {
+      console.warn(`⚠️ 文档 "${title}" 分块过程出错，文档已保存但分块不完整:`, chunkError)
+    }
+
     return NextResponse.json(result)
   } catch (error) {
     console.error('添加文档失败:', error)

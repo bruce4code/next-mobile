@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import prisma from './prisma'
 import { generateEmbedding } from './embedding'
 import * as jieba from 'nodejieba'
+import { chunkDocument } from './chunking'
 
 // 停用词（nodejieba 的 extract 已内置过滤，这里仅作额外兜底）
 const STOP_WORDS = new Set([
@@ -69,7 +70,7 @@ export async function searchSimilarDocuments(
     // 粗召回：多拉一些文档，给阈值过滤留空间
     const recallCount = topK * VECTOR_RECALL_MULTIPLIER
 
-    console.log('RAG 搜索开始, 查询:', query)
+    console.log('RAG 搜索开始 (查分块), 查询:', query)
     console.log(`  粗召回: ${recallCount} 条, 阈值: ${(minSimilarity * 100).toFixed(0)}%`)
 
     let queryEmbedding: number[]
@@ -85,34 +86,36 @@ export async function searchSimilarDocuments(
     if (category) {
       results = await prisma.$queryRaw`
         SELECT 
-          id,
-          title,
-          content,
-          "contentType",
-          category,
-          metadata,
-          "createdAt",
-          1 - (embedding <=> ${queryEmbeddingString}::vector) as similarity
-        FROM "Document"
-        WHERE embedding IS NOT NULL
-        AND category = ${category}
-        ORDER BY embedding <=> ${queryEmbeddingString}::vector
+          dc.id,
+          dc.title,
+          dc.content,
+          d."contentType",
+          d.category,
+          d.metadata,
+          d."createdAt",
+          1 - (dc.embedding <=> ${queryEmbeddingString}::vector) as similarity
+        FROM "DocumentChunk" dc
+        JOIN "Document" d ON d.id = dc."documentId"
+        WHERE dc.embedding IS NOT NULL
+        AND d.category = ${category}
+        ORDER BY dc.embedding <=> ${queryEmbeddingString}::vector
         LIMIT ${recallCount}
       `
     } else {
       results = await prisma.$queryRaw`
         SELECT 
-          id,
-          title,
-          content,
-          "contentType",
-          category,
-          metadata,
-          "createdAt",
-          1 - (embedding <=> ${queryEmbeddingString}::vector) as similarity
-        FROM "Document"
-        WHERE embedding IS NOT NULL
-        ORDER BY embedding <=> ${queryEmbeddingString}::vector
+          dc.id,
+          dc.title,
+          dc.content,
+          d."contentType",
+          d.category,
+          d.metadata,
+          d."createdAt",
+          1 - (dc.embedding <=> ${queryEmbeddingString}::vector) as similarity
+        FROM "DocumentChunk" dc
+        JOIN "Document" d ON d.id = dc."documentId"
+        WHERE dc.embedding IS NOT NULL
+        ORDER BY dc.embedding <=> ${queryEmbeddingString}::vector
         LIMIT ${recallCount}
       `
     }
@@ -125,7 +128,7 @@ export async function searchSimilarDocuments(
 
     if (filtered.length < results.length) {
       console.log(
-        `  阈值过滤: 剔除 ${results.length - filtered.length} 条低相关文档`
+        `  阈值过滤: 剔除 ${results.length - filtered.length} 条低相关分块`
       )
     }
 
@@ -133,7 +136,7 @@ export async function searchSimilarDocuments(
     console.log(`  最终返回: ${finalResults.length} 条`)
 
     if (finalResults.length === 0) {
-      console.log('  ⚠️ 所有文档相似度均低于阈值，尝试文本搜索降级')
+      console.log('  ⚠️ 所有分块相似度均低于阈值，尝试文本搜索降级')
       return await searchByText(query, options)
     }
 
@@ -147,10 +150,9 @@ export async function searchSimilarDocuments(
 async function searchByText(query: string, options: SearchOptions = {}): Promise<DocumentResult[]> {
   try {
     const { topK = 5, category } = options
-    console.log('  执行文本搜索降级, 查询:', query)
+    console.log('  执行文本搜索降级 (查分块), 查询:', query)
 
-    const tagged = extractKeywords(query)
-    const keywords = tagged
+    const keywords = extractKeywords(query)
     console.log('  提取关键词:', keywords)
 
     if (keywords.length === 0) {
@@ -158,33 +160,49 @@ async function searchByText(query: string, options: SearchOptions = {}): Promise
       return []
     }
 
-    const whereClause: any = {
-      OR: keywords.flatMap(kw => [
-        { title: { contains: kw, mode: 'insensitive' } },
-        { content: { contains: kw, mode: 'insensitive' } },
-      ]),
-    }
+    const likePatterns = keywords.map(kw => `%${kw}%`)
 
+    let results: any[]
     if (category) {
-      whereClause.category = category
+      results = await prisma.$queryRaw`
+        SELECT dc.id, dc.title, dc.content,
+               d."contentType", d.category, d.metadata, d."createdAt"
+        FROM "DocumentChunk" dc
+        JOIN "Document" d ON d.id = dc."documentId"
+        WHERE (dc.title ILIKE ANY(${likePatterns}) OR dc.content ILIKE ANY(${likePatterns}))
+        AND d.category = ${category}
+        ORDER BY dc."createdAt" DESC
+        LIMIT ${topK}
+      `
+    } else {
+      results = await prisma.$queryRaw`
+        SELECT dc.id, dc.title, dc.content,
+               d."contentType", d.category, d.metadata, d."createdAt"
+        FROM "DocumentChunk" dc
+        JOIN "Document" d ON d.id = dc."documentId"
+        WHERE dc.title ILIKE ANY(${likePatterns}) OR dc.content ILIKE ANY(${likePatterns})
+        ORDER BY dc."createdAt" DESC
+        LIMIT ${topK}
+      `
     }
-
-    const results = await prisma.document.findMany({
-      where: whereClause,
-      take: topK,
-      orderBy: { createdAt: 'desc' },
-    })
 
     console.log('  文本搜索结果数量:', results.length)
     if (results.length > 0) {
-      results.forEach((doc, i) => {
-        console.log(`    ${i + 1}. ${doc.title}: ${doc.content.substring(0, 50)}`)
+      results.forEach((r: any, i: number) => {
+        console.log(`    ${i + 1}. ${r.title}: ${r.content.substring(0, 50)}`)
       })
     }
-    return results.map(doc => ({
-      ...doc,
+
+    return results.map((r: any) => ({
+      id: r.id,
+      title: r.title,
+      content: r.content,
+      contentType: r.contentType,
+      category: r.category ?? undefined,
+      metadata: r.metadata as Record<string, unknown> | undefined,
+      createdAt: r.createdAt,
       similarity: 0.4,
-    })) as DocumentResult[]
+    }))
   } catch (textError) {
     console.error('  文本搜索也失败了:', textError)
     return []
@@ -199,7 +217,7 @@ export async function addDocument(
   const { contentType = 'text', category, metadata, userId } = options
   const embedding = await generateEmbedding(content)
 
-  return await prisma.document.create({
+  const doc = await prisma.document.create({
     data: {
       title,
       content,
@@ -210,6 +228,30 @@ export async function addDocument(
       embedding: embedding as unknown as Prisma.JsonValue,
     },
   })
+
+  // 自动分块并生成每个块的 embedding
+  try {
+    const chunks = chunkDocument(title, content, contentType)
+    console.log(`📦 文档 "${title}" 分为 ${chunks.length} 块`)
+
+    for (const chunk of chunks) {
+      try {
+        const chunkEmbedding = await generateEmbedding(chunk.title + '\n' + chunk.content)
+        const embeddingString = `[${chunkEmbedding.join(',')}]`
+        await prisma.$executeRaw`
+          INSERT INTO "DocumentChunk" ("id", "documentId", "title", "content", "chunkIndex", "embedding", "createdAt")
+          VALUES (${crypto.randomUUID()}, ${doc.id}, ${chunk.title}, ${chunk.content}, ${chunk.index}, ${embeddingString}::vector, NOW())
+        `
+      } catch (chunkError) {
+        console.warn(`⚠️ 分块 ${chunk.index} 生成失败，跳过:`, chunkError)
+      }
+    }
+    console.log(`✅ 文档 "${title}" 分块完成`)
+  } catch (chunkError) {
+    console.warn(`⚠️ 文档 "${title}" 分块过程出错，文档已保存但分块不完整:`, chunkError)
+  }
+
+  return doc
 }
 
 export async function addDocuments(
