@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
-import { Plus, Edit, Trash2, Search, BookOpen, FileText, HelpCircle, Package, Tag } from 'lucide-react'
+import { Plus, Edit, Trash2, Search, BookOpen, FileText, HelpCircle, Package, Tag, Upload } from 'lucide-react'
 import { toast } from "sonner"
 
 interface Document {
@@ -45,6 +45,7 @@ export default function KnowledgePage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editingDoc, setEditingDoc] = useState<Document | null>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [newDoc, setNewDoc] = useState({
     title: '',
     content: '',
@@ -124,6 +125,24 @@ export default function KnowledgePage() {
       toast.error(`添加文档失败: ${error instanceof Error ? error.message : '未知错误'}`)
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    try {
+      const content = await file.text()
+      const title = file.name.replace(/\.(md|markdown)$/i, '')
+      setNewDoc({ ...newDoc, title, content, contentType: 'markdown' })
+      toast.success(`已加载文件: ${file.name}`)
+    } catch {
+      toast.error('读取文件失败')
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
     }
   }
 
@@ -247,96 +266,119 @@ export default function KnowledgePage() {
             <h1 className="text-3xl font-bold">知识库管理</h1>
             <p className="text-muted-foreground mt-1">管理和搜索你的知识库文档</p>
           </div>
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="flex items-center gap-2">
-                <Plus className="w-4 h-4" />
-                添加文档
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-2xl">
-              <form onSubmit={handleAddDocument}>
-                <DialogHeader>
-                  <DialogTitle>添加新文档</DialogTitle>
-                  <DialogDescription>
-                    添加新的文档到你的知识库中
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="title">标题</Label>
-                    <Input
-                      id="title"
-                      value={newDoc.title}
-                      onChange={(e) => setNewDoc({ ...newDoc, title: e.target.value })}
-                      placeholder="输入文档标题"
-                      required
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
+          <div className="flex items-center gap-2">
+            <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="flex items-center gap-2">
+                  <Plus className="w-4 h-4" />
+                  添加文档
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
+                <form onSubmit={handleAddDocument} className="flex flex-col flex-1 overflow-hidden">
+                  <DialogHeader className="flex-shrink-0">
+                    <DialogTitle>添加新文档</DialogTitle>
+                    <DialogDescription>
+                      添加新的文档到你的知识库中
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="flex-1 overflow-y-auto px-1 pr-2">
+                    <div className="grid gap-4 py-4">
                     <div className="space-y-2">
-                      <Label htmlFor="category">分类</Label>
-                      <Select
-                        value={newDoc.category}
-                        onValueChange={(value) => setNewDoc({ ...newDoc, category: value })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="选择分类" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {CATEGORIES.map((cat) => (
-                            <SelectItem key={cat.value} value={cat.value}>
-                              {cat.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Label htmlFor="title">标题</Label>
+                      <Input
+                        id="title"
+                        value={newDoc.title}
+                        onChange={(e) => setNewDoc({ ...newDoc, title: e.target.value })}
+                        placeholder="输入文档标题"
+                        required
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="category">分类</Label>
+                        <Select
+                          value={newDoc.category}
+                          onValueChange={(value) => setNewDoc({ ...newDoc, category: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择分类" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CATEGORIES.map((cat) => (
+                              <SelectItem key={cat.value} value={cat.value}>
+                                {cat.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="contentType">内容类型</Label>
+                        <Select
+                          value={newDoc.contentType}
+                          onValueChange={(value) => setNewDoc({ ...newDoc, contentType: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="选择类型" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="text">纯文本</SelectItem>
+                            <SelectItem value="markdown">Markdown</SelectItem>
+                            <SelectItem value="pdf">PDF</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="contentType">内容类型</Label>
-                      <Select
-                        value={newDoc.contentType}
-                        onValueChange={(value) => setNewDoc({ ...newDoc, contentType: value })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="选择类型" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="text">纯文本</SelectItem>
-                          <SelectItem value="markdown">Markdown</SelectItem>
-                          <SelectItem value="pdf">PDF</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <div className="flex items-center gap-2">
+                        <Label>内容</Label>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept=".md,.markdown"
+                          onChange={handleFileSelect}
+                          className="hidden"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-muted-foreground gap-1"
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          <Upload className="w-3 h-3" />
+                          上传MD文件
+                        </Button>
+                      </div>
+                      <Textarea
+                        id="content"
+                        value={newDoc.content}
+                        onChange={(e) => setNewDoc({ ...newDoc, content: e.target.value })}
+                        placeholder="手动输入内容，或点击「上传MD文件」自动填充"
+                        className="h-[300px] resize-none"
+                        required
+                      />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="content">内容</Label>
-                    <Textarea
-                      id="content"
-                      value={newDoc.content}
-                      onChange={(e) => setNewDoc({ ...newDoc, content: e.target.value })}
-                      placeholder="输入文档内容"
-                      className="min-h-[200px]"
-                      required
-                    />
                   </div>
-                </div>
-                <DialogFooter>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setIsAddDialogOpen(false)}
-                    disabled={isSaving}
-                  >
-                    取消
-                  </Button>
-                  <Button type="submit" disabled={isSaving}>
-                    {isSaving ? '添加中...' : '添加文档'}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
+                  <DialogFooter className="flex-shrink-0">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsAddDialogOpen(false)}
+                      disabled={isSaving}
+                    >
+                      取消
+                    </Button>
+                    <Button type="submit" disabled={isSaving}>
+                      {isSaving ? '添加中...' : '添加文档'}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
@@ -526,15 +568,16 @@ export default function KnowledgePage() {
 
       {editingDoc && (
         <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-          <DialogContent className="sm:max-w-2xl">
-            <form onSubmit={handleEditDocument}>
-              <DialogHeader>
+          <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col overflow-hidden">
+            <form onSubmit={handleEditDocument} className="flex flex-col flex-1 overflow-hidden">
+              <DialogHeader className="flex-shrink-0">
                 <DialogTitle>编辑文档</DialogTitle>
                 <DialogDescription>
                   修改文档内容
                 </DialogDescription>
               </DialogHeader>
-              <div className="grid gap-4 py-4">
+              <div className="flex-1 overflow-y-auto px-1 pr-2">
+                <div className="grid gap-4 py-4">
                 <div className="space-y-2">
                   <Label htmlFor="edit-title">标题</Label>
                   <Input
@@ -588,12 +631,13 @@ export default function KnowledgePage() {
                     value={editingDoc.content}
                     onChange={(e) => setEditingDoc({ ...editingDoc, content: e.target.value })}
                     placeholder="输入文档内容"
-                    className="min-h-[200px]"
+                    className="h-[300px] resize-none"
                     required
                   />
                 </div>
               </div>
-              <DialogFooter>
+              </div>
+              <DialogFooter className="flex-shrink-0">
                 <Button
                   type="button"
                   variant="outline"
