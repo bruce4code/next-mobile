@@ -231,7 +231,7 @@ export async function addDocument(
 
   // 自动分块并生成每个块的 embedding
   try {
-    const chunks = chunkDocument(title, content, contentType)
+    const chunks = await chunkDocument(title, content, contentType)
     console.log(`📦 文档 "${title}" 分为 ${chunks.length} 块`)
 
     for (const chunk of chunks) {

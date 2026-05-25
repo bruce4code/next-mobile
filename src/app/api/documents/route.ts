@@ -144,7 +144,7 @@ export async function POST(req: NextRequest) {
 
     // 自动分块并生成每个块的 embedding
     try {
-      const chunks = chunkDocument(title, content, contentType || 'text')
+      const chunks = await chunkDocument(title, content, contentType || 'text')
       console.log(`📦 文档 "${title}" 分为 ${chunks.length} 块`)
       for (const chunk of chunks) {
         try {
