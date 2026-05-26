@@ -76,8 +76,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     return embedding
   } catch (error) {
     console.error('生成 embedding 失败:', error)
-    console.warn('使用随机 embedding 作为备用方案')
-    return generateRandomEmbedding()
+    throw error
   }
 }
 
@@ -96,15 +95,7 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
     return response.data.map((item) => item.embedding)
   } catch (error) {
     console.error('批量生成 embeddings 失败:', error)
-    console.warn('使用随机 embeddings 作为备用方案')
-    return texts.map(() => generateRandomEmbedding())
+    throw error
   }
 }
 
-function generateRandomEmbedding(): number[] {
-  const embedding: number[] = []
-  for (let i = 0; i < 1536; i++) {
-    embedding.push((Math.random() - 0.5) * 2)
-  }
-  return embedding
-}
