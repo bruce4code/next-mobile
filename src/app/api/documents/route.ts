@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getUser } from '@/app/auth/server'
 import prisma from '@/lib/prisma'
-import { generateEmbedding } from '@/lib/embedding'
+import { generateEmbedding, generateEmbeddings } from '@/lib/embedding'
 import { chunkDocument } from '@/lib/chunking'
+import { z } from 'zod'
+
+const CreateDocumentSchema = z.object({
+  title: z.string().min(1, '标题不能为空'),
+  content: z.string().min(1, '内容不能为空'),
+  contentType: z.enum(['text', 'markdown']).optional().default('text'),
+  category: z.string().optional(),
+})
 
 export async function GET(req: NextRequest) {
   try {
@@ -98,9 +106,16 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    console.log('接收到的请求体:', body)
 
-    const { title, content, contentType, category } = body
+    const parsed = CreateDocumentSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: '请求参数校验失败', details: parsed.error.issues },
+        { status: 400 }
+      )
+    }
+
+    const { title, content, contentType, category } = parsed.data
     const docId = crypto.randomUUID()
     const now = new Date()
 
@@ -120,7 +135,7 @@ export async function POST(req: NextRequest) {
           "id", "title", "content", "contentType", "category", 
           "userId", "embedding", "createdAt", "updatedAt"
         ) VALUES (
-          ${docId}, ${title}, ${content}, ${contentType || 'text'}, ${category},
+          ${docId}, ${title}, ${content}, ${contentType}, ${category},
           ${user.id}, ${embeddingString}::vector, ${now}, ${now}
         )
       `
@@ -130,7 +145,7 @@ export async function POST(req: NextRequest) {
           "id", "title", "content", "contentType", "category", 
           "userId", "createdAt", "updatedAt"
         ) VALUES (
-          ${docId}, ${title}, ${content}, ${contentType || 'text'}, ${category},
+          ${docId}, ${title}, ${content}, ${contentType}, ${category},
           ${user.id}, ${now}, ${now}
         )
       `
@@ -144,19 +159,20 @@ export async function POST(req: NextRequest) {
 
     // 自动分块并生成每个块的 embedding
     try {
-      const chunks = await chunkDocument(title, content, contentType || 'text')
+      const chunks = await chunkDocument(title, content, contentType)
       console.log(`📦 文档 "${title}" 分为 ${chunks.length} 块`)
-      for (const chunk of chunks) {
-        try {
-          const chunkEmbedding = await generateEmbedding(chunk.title + '\n' + chunk.content)
-          const embeddingString = `[${chunkEmbedding.join(',')}]`
-          await prisma.$executeRaw`
+      try {
+        const chunkTexts = chunks.map(chunk => chunk.title + '\n' + chunk.content)
+        const chunkEmbeddings = await generateEmbeddings(chunkTexts)
+        await Promise.all(chunks.map((chunk, i) => {
+          const embeddingString = `[${chunkEmbeddings[i].join(',')}]`
+          return prisma.$executeRaw`
             INSERT INTO "DocumentChunk" ("id", "documentId", "title", "content", "chunkIndex", "embedding", "createdAt")
             VALUES (${crypto.randomUUID()}, ${docId}, ${chunk.title}, ${chunk.content}, ${chunk.index}, ${embeddingString}::vector, NOW())
           `
-        } catch (chunkError) {
-          console.warn(`⚠️ 分块 ${chunk.index} 生成失败，跳过:`, chunkError)
-        }
+        }))
+      } catch (chunkError) {
+        console.warn(`⚠️ 分块 embedding 批量生成失败:`, chunkError)
       }
       console.log(`✅ 文档 "${title}" 分块完成`)
     } catch (chunkError) {
