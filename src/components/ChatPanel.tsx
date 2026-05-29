@@ -1,10 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react'
 import ChatMarkdown from '@/components/ChatMarkdown'
 import { User } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
@@ -37,6 +33,26 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const [showScrollButton, setShowScrollButton] = useState(false)
+
+  const handleScroll = useCallback(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    const threshold = 15
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold
+    if (isLoading) {
+      setShowScrollButton(!nearBottom)
+    }
+  }, [isLoading])
+
+  const scrollToBottom = useCallback(() => {
+    const container = scrollContainerRef.current
+    if (container) {
+      container.scrollTop = container.scrollHeight
+    }
+    setShowScrollButton(false)
+  }, [])
 
   // 当 initialConversationId 变化时 (例如从 URL 参数加载)，或者组件首次加载时获取历史消息
   useEffect(() => {
@@ -230,7 +246,7 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
       console.error('聊天请求错误:', error)
       setMessages(prev => [
         ...prev,
-        { role: 'assistant', content: '抱歉，处理您的请求时出错了。请稍后再试。', id: uuidv4() },
+        { role: 'assistant', content: '抱歉，处理您的请求时出错了。请稍后再试。', displayContent: '抱歉，处理您的请求时出错了。请稍后再试。', id: uuidv4() },
       ])
     } finally {
       setIsLoading(false)
@@ -278,14 +294,26 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
     }
   }
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    const threshold = 120
+    const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold
+    if (nearBottom) {
+      container.scrollTop = container.scrollHeight
+    }
   }, [messages])
+
+  useEffect(() => {
+    if (!isLoading) {
+      setShowScrollButton(false)
+    }
+  }, [isLoading])
 
   return (
     <div className="flex flex-col h-full">
       {/* Messages Area */}
-      <div className="chatgpt-messages">
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="chatgpt-messages">
         {messages.length === 0 && !isLoading && (
           <div className="flex items-center justify-center h-full">
             <div className="text-center text-muted-foreground">
@@ -359,6 +387,19 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
             </div>
           </div>
         ))}
+        {showScrollButton && (
+          <div className="sticky bottom-0 flex justify-center pb-2">
+            <button
+              onClick={scrollToBottom}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm shadow-lg hover:bg-primary/90 transition-all animate-in fade-in slide-in-from-bottom-1"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+              回到底部
+            </button>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
