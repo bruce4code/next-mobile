@@ -5,7 +5,8 @@ import ChatMarkdown from '@/components/ChatMarkdown'
 import { User } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
 import { useTranslation } from 'react-i18next'
-import { cachedGetConversation } from '@/lib/cache'
+
+const PAGE_SIZE = 10
 
 // 定义消息内容类型
 type MessageContent = string | { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
@@ -35,6 +36,14 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
   const fileInputRef = useRef<HTMLInputElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [showScrollButton, setShowScrollButton] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
+  const nextCursorRef = useRef<string | null>(null)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const pendingScrollAdjRef = useRef<{ prevScrollHeight: number } | null>(null)
+  const isLoadingHistoryRef = useRef(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const shouldScrollToBottomRef = useRef(false)
 
   const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current
@@ -58,31 +67,47 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
   useEffect(() => {
     if (initialConversationId) {
       setCurrentConversationId(initialConversationId);
+      const ac = new AbortController();
       const fetchMessages = async () => {
         setIsLoading(true);
         try {
-          // 使用缓存的对话获取函数
-          const historyMessages = await cachedGetConversation(initialConversationId);
-          setMessages(historyMessages.map((msg: any) => ({ // Ensure type is correct
-            id: msg.id || uuidv4(), // 如果数据库记录没有id，则生成一个
+          const res = await fetch(
+            `/api/get-chat?conversationId=${initialConversationId}&limit=${PAGE_SIZE}`,
+            { signal: ac.signal }
+          );
+          if (!res.ok) throw new Error(`请求失败: ${res.status}`);
+          const data = await res.json();
+          setMessages(data.messages.map((msg: any) => ({
+            id: msg.id || uuidv4(),
             role: msg.role,
             content: msg.content,
             displayContent: typeof msg.content === 'string' ? msg.content : '',
           })));
+          setHasMore(data.hasMore);
+          nextCursorRef.current = data.nextCursorCreatedAt;
+          shouldScrollToBottomRef.current = true;
         } catch (error) {
           console.error(error);
-          // 可以设置错误状态或提示用户
         } finally {
           setIsLoading(false);
         }
       };
       fetchMessages();
+      return () => { ac.abort(); };
     } else {
-      // 如果没有 initialConversationId，则清空消息，准备新会话
       setMessages([]);
-      setCurrentConversationId(null); // 确保新会话开始时 currentConversationId 为 null
+      setCurrentConversationId(null);
+      setHasMore(false);
+      nextCursorRef.current = null;
+      isLoadingHistoryRef.current = false;
     }
   }, [initialConversationId]);
+
+  useEffect(() => {
+    if (!hasMore) {
+      isLoadingHistoryRef.current = false;
+    }
+  }, [hasMore]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -297,7 +322,22 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
   useLayoutEffect(() => {
     const container = scrollContainerRef.current
     if (!container) return
-    const threshold = 120
+
+    if (pendingScrollAdjRef.current) {
+      const { prevScrollHeight } = pendingScrollAdjRef.current
+      const heightDiff = container.scrollHeight - prevScrollHeight
+      container.scrollTop += heightDiff
+      pendingScrollAdjRef.current = null
+      return
+    }
+
+    if (shouldScrollToBottomRef.current) {
+      shouldScrollToBottomRef.current = false
+      container.scrollTop = container.scrollHeight
+      return
+    }
+
+    const threshold = 15
     const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < threshold
     if (nearBottom) {
       container.scrollTop = container.scrollHeight
@@ -309,6 +349,67 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
       setShowScrollButton(false)
     }
   }, [isLoading])
+
+  useEffect(() => {
+    if (!hasMore) return
+
+    const sentinel = sentinelRef.current
+    if (!sentinel) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && currentConversationId) {
+          loadOlderMessages()
+        }
+      },
+      { rootMargin: '200px 0px 0px 0px' }
+    )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [hasMore, currentConversationId])
+
+  async function loadOlderMessages() {
+    const container = scrollContainerRef.current
+    if (!container || !currentConversationId) return
+
+    if (isLoadingHistoryRef.current) return
+    isLoadingHistoryRef.current = true
+
+    const prevScrollHeight = container.scrollHeight
+    setIsLoadingHistory(true)
+
+    abortControllerRef.current?.abort()
+    const ac = new AbortController()
+    abortControllerRef.current = ac
+
+    try {
+      const res = await fetch(
+        `/api/get-chat?conversationId=${currentConversationId}&cursorCreatedAt=${nextCursorRef.current}&limit=${PAGE_SIZE}`,
+        { signal: ac.signal }
+      )
+      if (!res.ok) throw new Error(`请求失败: ${res.status}`)
+      const data = await res.json()
+
+      setMessages(prev => [
+        ...data.messages.map((msg: any) => ({
+          id: msg.id || uuidv4(),
+          role: msg.role,
+          content: msg.content,
+          displayContent: typeof msg.content === 'string' ? msg.content : '',
+        })),
+        ...prev,
+      ])
+      setHasMore(data.hasMore)
+      nextCursorRef.current = data.nextCursorCreatedAt
+      pendingScrollAdjRef.current = { prevScrollHeight }
+    } catch (error) {
+      console.error('加载历史消息失败:', error)
+    } finally {
+      isLoadingHistoryRef.current = false
+      setIsLoadingHistory(false)
+    }
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -345,6 +446,15 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
                 </div>
               </div>
             )}
+        {isLoadingHistory && (
+          <div className="flex justify-center py-3">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              加载历史消息...
+            </div>
+          </div>
+        )}
+        <div ref={sentinelRef} />
         {messages.map((message) => (
           <div
             key={message.id}

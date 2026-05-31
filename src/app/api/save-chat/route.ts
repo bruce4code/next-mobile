@@ -6,7 +6,7 @@ import { z } from 'zod';
 const SaveChatSchema = z.object({
   role: z.enum(['user', 'assistant', 'system'], { message: 'role 必须是 user / assistant / system' }),
   content: z.string().min(1, 'content 不能为空'),
-  model: z.string().min(1, 'model 不能为空'),
+  model: z.string().optional(),
   promptTokens: z.number().int().nonnegative().optional(),
   completionTokens: z.number().int().nonnegative().optional(),
   totalTokens: z.number().int().nonnegative().optional(),
