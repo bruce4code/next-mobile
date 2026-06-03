@@ -1,8 +1,12 @@
+'use client'
+
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { FileQuestion, ArrowLeft, Home } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 export default function LocaleNotFound() {
+  const router = useRouter()
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-6">
       <div className="max-w-md w-full text-center space-y-6">
@@ -29,9 +33,7 @@ export default function LocaleNotFound() {
           </Button>
           <Button
             variant="outline"
-            onClick={() => {
-              if (typeof window !== 'undefined') window.history.back()
-            }}
+            onClick={() => router.back()}
             className="gap-2"
           >
             <ArrowLeft className="w-4 h-4" />

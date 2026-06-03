@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { AlertTriangle, RefreshCcw, Home } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -11,6 +12,8 @@ export default function LocaleError({
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  const router = useRouter()
+
   useEffect(() => {
     console.error('页面出错:', error)
   }, [error])
@@ -43,7 +46,7 @@ export default function LocaleError({
           </Button>
           <Button
             variant="outline"
-            onClick={() => { window.location.href = '/' }}
+            onClick={() => router.push('/')}
             className="gap-2"
           >
             <Home className="w-4 h-4" />
