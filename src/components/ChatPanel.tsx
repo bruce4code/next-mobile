@@ -73,6 +73,7 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
   useEffect(() => {
     if (initialConversationId) {
       setCurrentConversationId(initialConversationId);
+      setShouldNotFound(false);
       const ac = new AbortController();
       const fetchMessages = async () => {
         setIsLoading(true);
