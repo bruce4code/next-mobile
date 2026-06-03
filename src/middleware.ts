@@ -37,15 +37,22 @@ export async function middleware(request: NextRequest) {
     // Determine the preferred locale
     currentLocale = getPreferredLocale(request);
 
-    // Create a new URL with the locale prefix
+    // Create a new URL with the locale prefix, directly to /chat
     const urlWithLocale = request.nextUrl.clone();
-    urlWithLocale.pathname = `/${currentLocale}${pathname === '/' ? '' : pathname}`;
+    urlWithLocale.pathname = `/${currentLocale}/chat`;
 
     // Redirect the URL to include the locale prefix. This ensures `params.locale` is correctly populated.
     return NextResponse.redirect(urlWithLocale);
   } else {
     // Locale is already in the pathname, extract it
     currentLocale = pathname.split('/')[1];
+
+    // 如果访问 /{locale} 或 /{locale}/，直接跳到 /chat，避免 page.tsx 再做一次 302
+    if (pathname === `/${currentLocale}` || pathname === `/${currentLocale}/`) {
+      const chatUrl = request.nextUrl.clone();
+      chatUrl.pathname = `/${currentLocale}/chat`;
+      return NextResponse.redirect(chatUrl);
+    }
   }
 
   // 2. Supabase Authentication Handling (Existing Logic Re-integrated)

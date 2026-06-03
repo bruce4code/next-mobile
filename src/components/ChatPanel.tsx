@@ -2,10 +2,18 @@
 
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react'
 import { notFound } from 'next/navigation'
-import ChatMarkdown from '@/components/ChatMarkdown'
+import dynamic from 'next/dynamic'
 import { User } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
 import { useTranslation } from 'react-i18next'
+
+const ChatMarkdown = dynamic(() => import('@/components/ChatMarkdown'), {
+  loading: () => <div className="space-y-2">
+    <div className="animate-pulse h-4 bg-muted rounded w-full" />
+    <div className="animate-pulse h-4 bg-muted rounded w-5/6" />
+    <div className="animate-pulse h-4 bg-muted rounded w-2/3" />
+  </div>
+})
 
 const PAGE_SIZE = 10
 
@@ -24,11 +32,27 @@ type Message = {
 interface ChatPanelProps {
   initialConversationId?: string | null
   currentUser: User | null
+  initialMessages?: Array<{ id: string; role: string; content: string; createdAt: Date }>
+  initialHasMore?: boolean
+  initialCursor?: string | null
 }
 
-export default function ChatPanel({ initialConversationId, currentUser }: ChatPanelProps) {
+export default function ChatPanel({
+  initialConversationId,
+  currentUser,
+  initialMessages: preloadedMessages,
+  initialHasMore = false,
+  initialCursor = null,
+}: ChatPanelProps) {
   const { t } = useTranslation();
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<Message[]>(() =>
+    preloadedMessages?.map(msg => ({
+      id: msg.id || uuidv4(),
+      role: msg.role as 'user' | 'assistant',
+      content: msg.content,
+      displayContent: typeof msg.content === 'string' ? msg.content : '',
+    })) ?? []
+  )
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(initialConversationId || null)
@@ -37,14 +61,16 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
   const fileInputRef = useRef<HTMLInputElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [showScrollButton, setShowScrollButton] = useState(false)
-  const [hasMore, setHasMore] = useState(false)
-  const nextCursorRef = useRef<string | null>(null)
+  const [hasMore, setHasMore] = useState(initialHasMore)
+  const nextCursorRef = useRef<string | null>(initialCursor)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const pendingScrollAdjRef = useRef<{ prevScrollHeight: number } | null>(null)
   const isLoadingHistoryRef = useRef(false)
   const abortControllerRef = useRef<AbortController | null>(null)
-  const shouldScrollToBottomRef = useRef(false)
+  const shouldScrollToBottomRef = useRef(
+    !!(preloadedMessages && preloadedMessages.length > 0)
+  )
   const [shouldNotFound, setShouldNotFound] = useState(false)
 
   if (shouldNotFound) {
@@ -74,6 +100,21 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
     if (initialConversationId) {
       setCurrentConversationId(initialConversationId);
       setShouldNotFound(false);
+
+      // 如果已有服务端预取的消息，跳过客户端 fetch
+      if (preloadedMessages && preloadedMessages.length > 0) {
+        setMessages(preloadedMessages.map(msg => ({
+          id: msg.id || uuidv4(),
+          role: msg.role as 'user' | 'assistant',
+          content: msg.content,
+          displayContent: typeof msg.content === 'string' ? msg.content : '',
+        })))
+        setHasMore(initialHasMore)
+        nextCursorRef.current = initialCursor
+        shouldScrollToBottomRef.current = true
+        return;
+      }
+
       const ac = new AbortController();
       const fetchMessages = async () => {
         setIsLoading(true);
@@ -437,11 +478,22 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
           </div>
         )}
             {isLoading && messages.length === 0 && (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center text-muted-foreground">
-                  <div className="text-lg">{t('loading_data')}</div>
-                </div>
-              </div>
+              <>
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className={`chatgpt-message ${i === 1 ? 'chatgpt-message-user' : ''}`}>
+                    <div className={`chatgpt-message-avatar ${i === 1 ? 'chatgpt-message-avatar-user' : 'chatgpt-message-avatar-assistant'}`}>
+                      {i === 1 ? 'U' : 'AI'}
+                    </div>
+                    <div className={`chatgpt-message-content ${i === 1 ? 'chatgpt-message-content-user' : 'chatgpt-message-content-assistant'}`}>
+                      <div className="space-y-2">
+                        <div className="animate-pulse h-4 bg-muted rounded w-full" />
+                        <div className="animate-pulse h-4 bg-muted rounded w-4/5" />
+                        <div className="animate-pulse h-4 bg-muted rounded w-3/5" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </>
             )}
             {isLoading && messages.length > 0 && (
               <div className="chatgpt-message">
