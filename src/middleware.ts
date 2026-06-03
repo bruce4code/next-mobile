@@ -70,11 +70,15 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
 
   const localizedLoginPath = `/${currentLocale}/login`;
-  const isAuthCallbackPath = pathname.startsWith(`/${currentLocale}/auth/`);
+  const isProtectedPath =
+    pathname.startsWith(`/${currentLocale}/chat`) ||
+    pathname.startsWith(`/${currentLocale}/knowledge`) ||
+    pathname.startsWith(`/${currentLocale}/profile`) ||
+    pathname.startsWith(`/${currentLocale}/settings`);
 
-  // Apply login protection
-  if (!user && pathname !== localizedLoginPath && !isAuthCallbackPath) {
-    const redirectUrl = request.nextUrl.clone(); // Clone the original request URL
+  // 只对受保护路由做登录拦截，其他不存在路径直接走 not-found
+  if (!user && isProtectedPath) {
+    const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = localizedLoginPath;
     return NextResponse.redirect(redirectUrl);
   }

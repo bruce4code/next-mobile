@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react'
+import { notFound } from 'next/navigation'
 import ChatMarkdown from '@/components/ChatMarkdown'
 import { User } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
@@ -44,6 +45,11 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
   const isLoadingHistoryRef = useRef(false)
   const abortControllerRef = useRef<AbortController | null>(null)
   const shouldScrollToBottomRef = useRef(false)
+  const [shouldNotFound, setShouldNotFound] = useState(false)
+
+  if (shouldNotFound) {
+    notFound()
+  }
 
   const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current
@@ -77,6 +83,10 @@ export default function ChatPanel({ initialConversationId, currentUser }: ChatPa
           );
           if (!res.ok) throw new Error(`请求失败: ${res.status}`);
           const data = await res.json();
+          if (initialConversationId && data.messages.length === 0 && !data.hasMore) {
+            setShouldNotFound(true);
+            return;
+          }
           setMessages(data.messages.map((msg: any) => ({
             id: msg.id || uuidv4(),
             role: msg.role,
