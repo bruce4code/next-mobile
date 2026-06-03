@@ -51,7 +51,7 @@ export default async function RootLayout({
   // }, [resolvedParams.locale]);
   // 注意：上面的 useEffect 逻辑更适合放在 I18nProviderWrapper 内部，因为它是一个客户端组件
   return (
-    <html lang={resolvedParams.locale}>
+    <html lang={resolvedParams.locale} suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased `}>
         {/* Re-enable I18nProviderWrapper */}
         <I18nProviderWrapper locale={resolvedParams.locale} initialResources={serializedResources}> 
