@@ -1,24 +1,16 @@
-'use client'
-
+import type { Metadata } from 'next'
+import { redirect } from 'next/navigation'
+import { getUser } from '@/app/auth/server'
 import ChatPanel from '@/components/ChatPanel'
-import { useUser } from '@/components/UserProvider'
 
-export default function NewChatPage() {
-  const { user: currentUser, loading } = useUser()
+export const metadata: Metadata = {
+  title: '新对话',
+  description: '开始一个新的 AI 智能对话',
+}
 
-  return (
-    <>
-      {loading ? (
-        <div className="flex items-center justify-center h-full">
-          <div className="text-lg text-muted-foreground">加载中...</div>
-        </div>
-      ) : currentUser ? (
-        <ChatPanel currentUser={currentUser} />
-      ) : (
-        <div className="flex items-center justify-center h-full">
-          <div className="text-lg text-muted-foreground">请先登录</div>
-        </div>
-      )}
-    </>
-  )
+export default async function NewChatPage() {
+  const user = await getUser()
+  if (!user) redirect('/login')
+
+  return <ChatPanel currentUser={user} />
 }

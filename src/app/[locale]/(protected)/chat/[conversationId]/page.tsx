@@ -1,31 +1,21 @@
-'use client'
-
-import { useParams, notFound } from 'next/navigation'
+import type { Metadata } from 'next'
+import { redirect } from 'next/navigation'
+import { getUser } from '@/app/auth/server'
 import ChatPanel from '@/components/ChatPanel'
-import { useUser } from '@/components/UserProvider'
 
-export default function ConversationChatPage() {
-  const params = useParams()
-  const conversationId = params.conversationId as string | undefined
-  const { user: currentUser, loading } = useUser()
+export const metadata: Metadata = {
+  title: '对话',
+  description: 'AI 智能对话',
+}
 
-  if (!conversationId) {
-    notFound()
-  }
+export default async function ConversationChatPage({
+  params,
+}: {
+  params: Promise<{ conversationId: string }>
+}) {
+  const { conversationId } = await params
+  const user = await getUser()
+  if (!user) redirect('/login')
 
-  return (
-    <>
-      {loading ? (
-        <div className="flex items-center justify-center h-full">
-          <div className="text-lg text-muted-foreground">加载中...</div>
-        </div>
-      ) : currentUser ? (
-        <ChatPanel currentUser={currentUser} initialConversationId={conversationId} />
-      ) : (
-        <div className="flex items-center justify-center h-full">
-          <div className="text-lg text-muted-foreground">请先登录</div>
-        </div>
-      )}
-    </>
-  )
+  return <ChatPanel currentUser={user} initialConversationId={conversationId} />
 }
