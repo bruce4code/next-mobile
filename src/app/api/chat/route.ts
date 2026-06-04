@@ -1,19 +1,18 @@
 import OpenAI from "openai"
 import { getUser } from '@/app/auth/server'
 import { searchSimilarDocuments, buildRAGContext, extractKeywords } from '@/lib/rag'
+import {
+  OPENROUTER_CONFIG,
+  DEFAULT_CHAT_MODELS,
+} from '@/lib/openrouter'
 
 // 初始化 OpenRouter 客户端
 const openai = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY || "",
-  baseURL: "https://openrouter.ai/api/v1",
+  apiKey: OPENROUTER_CONFIG.apiKey,
+  baseURL: OPENROUTER_CONFIG.baseURL,
 })
 
-const DEFAULT_MODEL_CANDIDATES = [
-  "stepfun/step-3.5-flash",
-  "nvidia/nemotron-3-super",
-  "arcee-ai/trinity-large-preview",
-  "z-ai/glm-4.5-air",
-]
+const DEFAULT_MODEL_CANDIDATES = DEFAULT_CHAT_MODELS
 
 const ENABLE_RAG = true
 
@@ -142,7 +141,7 @@ export async function POST(req: Request) {
           try {
           const similarDocs = await searchSimilarDocuments(
             lastUserMessage.content,
-            { topK: 5 }
+            { topK: 5, mode: 'hybrid', reranker: { topK: 5 } }
           )
 
           if (similarDocs.length > 0) {

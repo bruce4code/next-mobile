@@ -1,13 +1,12 @@
 import { createHash } from 'crypto'
 import OpenAI from "openai"
 import prisma from './prisma'
+import { OPENROUTER_CONFIG, DEFAULT_EMBEDDING_MODEL } from './openrouter'
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY || "",
-  baseURL: "https://openrouter.ai/api/v1",
+  apiKey: OPENROUTER_CONFIG.apiKey,
+  baseURL: OPENROUTER_CONFIG.baseURL,
 })
-
-const DEFAULT_EMBEDDING_MODEL = "qwen/qwen3-embedding-8b"
 
 function hashText(text: string): string {
   return createHash('md5').update(text.replace(/\s+/g, '').slice(0, 500)).digest('hex')
