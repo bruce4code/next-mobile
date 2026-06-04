@@ -1,6 +1,8 @@
 import { Prisma } from '@prisma/client'
 import prisma from './prisma'
 import { generateEmbedding, generateEmbeddings } from './embedding'
+import { rerankResults, type RerankerOptions } from './reranker'
+import { logger } from './logger'
 import * as jieba from 'nodejieba'
 import { chunkDocument } from './chunking'
 
@@ -21,23 +23,16 @@ const STOP_WORDS = new Set([
   '查', '一下', '一下下',
 ])
 
-// 使用 nodejieba 的 TF-IDF 算法提取关键词
-export function extractKeywords(text: string): string[] {
-  const keywords = jieba.extract(text, 5)
-  return keywords
-    .map(k => k.word)
-    .filter(word => word.length > 0 && !STOP_WORDS.has(word) && !/^\d+$/.test(word))
-}
-
-// 相似度阈值：低于此值的文档视为不相关，不纳入上下文
-const DEFAULT_MIN_SIMILARITY = 0.35
-// 向量搜索的粗召回数量（比最终需要的多，给阈值过滤留余量）
-const VECTOR_RECALL_MULTIPLIER = 3
+// ─── 搜索模式 ─────────────────────────────────────────────
+export type SearchMode = 'vector' | 'hybrid'
 
 interface SearchOptions {
   topK?: number
   category?: string
   minSimilarity?: number
+  /** 搜索模式，默认 hybrid */
+  mode?: SearchMode
+  reranker?: boolean | RerankerOptions
 }
 
 interface DocumentResult {
@@ -60,57 +55,351 @@ interface DocumentInput {
   userId?: string
 }
 
+// ─── 常量 ──────────────────────────────────────────────────
+const DEFAULT_MIN_SIMILARITY = 0.35
+const VECTOR_RECALL_MULTIPLIER = 3
+const KEYWORD_RECALL_MULTIPLIER = 3
+const RRF_K = 60  // RRF 常数，越小 keyword 结果权重越高
+const HYBRID_TOP_K = 10  // 融合后给 reranker 的候选数
+
+// 使用 nodejieba 的 TF-IDF 算法提取关键词
+export function extractKeywords(text: string): string[] {
+  const keywords = jieba.extract(text, 5)
+  return keywords
+    .map(k => k.word)
+    .filter(word => word.length > 0 && !STOP_WORDS.has(word) && !/^\d+$/.test(word))
+}
+
+// ─── RRF 融合 ─────────────────────────────────────────────
+type RankedItem = { id: string; rank: number }
+
+function computeRRFScores(
+  vectorRanks: RankedItem[],
+  keywordRanks: RankedItem[],
+): Map<string, { rrfScore: number; vectorRank: number | null; keywordRank: number | null }> {
+  const scoreMap = new Map<string, { vectorRank: number | null; keywordRank: number | null; rrfScore: number }>()
+
+  for (const item of vectorRanks) {
+    scoreMap.set(item.id, { vectorRank: item.rank, keywordRank: null, rrfScore: 0 })
+  }
+  for (const item of keywordRanks) {
+    const existing = scoreMap.get(item.id)
+    if (existing) {
+      existing.keywordRank = item.rank
+    } else {
+      scoreMap.set(item.id, { vectorRank: null, keywordRank: item.rank, rrfScore: 0 })
+    }
+  }
+
+  for (const [, scores] of scoreMap) {
+    let score = 0
+    if (scores.vectorRank !== null) score += 1 / (RRF_K + scores.vectorRank)
+    if (scores.keywordRank !== null) score += 1 / (RRF_K + scores.keywordRank)
+    scores.rrfScore = score
+  }
+
+  return scoreMap
+}
+
+// ─── BM25 风格关键词搜索（带打分） ───────────────────────────
+interface KeywordMatch {
+  id: string
+  title: string
+  content: string
+  contentType: string
+  category?: string
+  metadata?: Record<string, unknown>
+  createdAt: Date
+  keywordScore: number   // 0~1 归一化
+  matchCount: number
+}
+
+async function keywordSearchWithScore(
+  query: string,
+  options: SearchOptions = {},
+): Promise<KeywordMatch[]> {
+  const { topK = 5, category } = options
+  const recallCount = topK * KEYWORD_RECALL_MULTIPLIER
+
+  logger.info('RAG.KeywordSearch.Start', { query, topK, recallCount, category })
+
+  const keywords = extractKeywords(query)
+  logger.info('RAG.KeywordSearch.Keywords', { keywords, count: keywords.length })
+
+  if (keywords.length === 0) {
+    logger.warn('RAG.KeywordSearch.NoKeywords', '无法提取有效关键词，关键词搜索返回空')
+    return []
+  }
+
+  const likePatterns = keywords.map(kw => `%${kw}%`)
+
+  // 获取匹配的分块（多要一些，给排序留空间）
+  let rawResults: any[]
+  if (category) {
+    rawResults = await prisma.$queryRaw`
+      SELECT dc.id, dc.title, dc.content,
+             d."contentType", d.category, d.metadata, d."createdAt"
+      FROM "DocumentChunk" dc
+      JOIN "Document" d ON d.id = dc."documentId"
+      WHERE (dc.title ILIKE ANY(${likePatterns}) OR dc.content ILIKE ANY(${likePatterns}))
+      AND d.category = ${category}
+      ORDER BY dc."createdAt" DESC
+      LIMIT ${recallCount}
+    `
+  } else {
+    rawResults = await prisma.$queryRaw`
+      SELECT dc.id, dc.title, dc.content,
+             d."contentType", d.category, d.metadata, d."createdAt"
+      FROM "DocumentChunk" dc
+      JOIN "Document" d ON d.id = dc."documentId"
+      WHERE dc.title ILIKE ANY(${likePatterns}) OR dc.content ILIKE ANY(${likePatterns})
+      ORDER BY dc."createdAt" DESC
+      LIMIT ${recallCount}
+    `
+  }
+
+  if (rawResults.length === 0) return []
+
+  // BM25 风格评分
+  let maxScore = 0
+  const scored: KeywordMatch[] = rawResults.map((row: any) => {
+    const titleLower = (row.title ?? '').toLowerCase()
+    const contentLower = (row.content ?? '').toLowerCase()
+    let matchCount = 0
+
+    for (const kw of keywords) {
+      const kwLower = kw.toLowerCase()
+      // 在 title 中匹配加分更高
+      if (titleLower.includes(kwLower)) matchCount += 3
+      // content 中匹配
+      const contentMatches = (contentLower.match(new RegExp(kwLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length
+      matchCount += contentMatches
+    }
+
+    // 归一化到分块长度，避免长文档天然高分
+    const docLen = row.content.length
+    const normalizedScore = docLen > 0 ? matchCount / Math.sqrt(docLen) : 0
+
+    if (normalizedScore > maxScore) maxScore = normalizedScore
+
+    return {
+      id: row.id,
+      title: row.title,
+      content: row.content,
+      contentType: row.contentType,
+      category: row.category ?? undefined,
+      metadata: row.metadata as Record<string, unknown> | undefined,
+      createdAt: row.createdAt,
+      keywordScore: normalizedScore,
+      matchCount,
+    }
+  })
+
+  // [0, 1] 归一化
+  for (const s of scored) {
+    s.keywordScore = maxScore > 0 ? s.keywordScore / maxScore : 0
+  }
+
+  // 按分数降序排列
+  scored.sort((a, b) => b.keywordScore - a.keywordScore)
+
+  const final = scored.slice(0, recallCount)
+  logger.info('RAG.KeywordSearch.Result', {
+    total: scored.length,
+    returned: final.length,
+    topScore: final[0]?.keywordScore.toFixed(3) ?? 'N/A',
+    topTitle: final[0]?.title ?? 'N/A',
+  })
+  return final
+}
+
+// ─── 混合搜索入口 ───────────────────────────────────────────
 export async function searchSimilarDocuments(
+  query: string,
+  options: SearchOptions = {}
+): Promise<DocumentResult[]> {
+  const {
+    topK = 5,
+    category,
+    minSimilarity = DEFAULT_MIN_SIMILARITY,
+    mode = 'hybrid',
+    reranker,
+  } = options
+
+  // 纯向量模式（老路径，保持兼容）
+  if (mode === 'vector') {
+    return vectorSearch(query, { topK, category, minSimilarity })
+  }
+
+  // hybrid 模式
+  logger.info('RAG.HybridSearch.Start', { query, mode, topK, category: category ?? null, reranker: !!reranker })
+
+  // 并行执行向量搜索 + 关键词搜索
+  const [vectorResults, keywordResults] = await Promise.allSettled([
+    vectorSearch(query, { topK, category, minSimilarity }),
+    keywordSearchWithScore(query, { topK, category }),
+  ])
+
+  const vectors = vectorResults.status === 'fulfilled' ? vectorResults.value : []
+  const keywords = keywordResults.status === 'fulfilled' ? keywordResults.value : []
+
+  if (vectorResults.status === 'rejected') {
+    logger.error('RAG.HybridSearch.VectorError', { error: String(vectorResults.reason) })
+  }
+  if (keywordResults.status === 'rejected') {
+    logger.error('RAG.HybridSearch.KeywordError', { error: String(keywordResults.reason) })
+  }
+
+  if (vectors.length === 0 && keywords.length === 0) {
+    logger.warn('RAG.HybridSearch.Empty', '向量和关键词搜索均无结果，触发文本降级', { query })
+    // 兜底：直接用原始查询做 ILIKE，不依赖 jieba 关键词提取
+    try {
+      const pattern = `%${query}%`
+      let fallback: any[]
+      if (category) {
+        fallback = await prisma.$queryRaw`
+          SELECT dc.id, dc.title, dc.content,
+                 d."contentType", d.category, d.metadata, d."createdAt"
+          FROM "DocumentChunk" dc
+          JOIN "Document" d ON d.id = dc."documentId"
+          WHERE (dc.title ILIKE ${pattern} OR dc.content ILIKE ${pattern})
+          AND d.category = ${category}
+          LIMIT ${topK}
+        `
+      } else {
+        fallback = await prisma.$queryRaw`
+          SELECT dc.id, dc.title, dc.content,
+                 d."contentType", d.category, d.metadata, d."createdAt"
+          FROM "DocumentChunk" dc
+          JOIN "Document" d ON d.id = dc."documentId"
+          WHERE dc.title ILIKE ${pattern} OR dc.content ILIKE ${pattern}
+          LIMIT ${topK}
+        `
+      }
+      return fallback.map((r: any) => ({
+        id: r.id,
+        title: r.title,
+        content: r.content,
+        contentType: r.contentType,
+        category: r.category ?? undefined,
+        metadata: r.metadata as Record<string, unknown> | undefined,
+        createdAt: r.createdAt,
+        similarity: 0.3,
+      }))
+    } catch (fallbackErr) {
+      logger.error('RAG.HybridSearch.FallbackError', { error: String(fallbackErr) })
+      return []
+    }
+  }
+
+  // RRF 融合
+  const vectorRanks: RankedItem[] = vectors.map((r, i) => ({ id: r.id, rank: i + 1 }))
+  const keywordRanks: RankedItem[] = keywords.map((r, i) => ({ id: r.id, rank: i + 1 }))
+
+  // 构建融合结果，合并元数据
+  const vectorMap = new Map(vectors.map(r => [r.id, r]))
+  const keywordMap = new Map(keywords.map(r => [r.id, r]))
+
+  const rrfScores = computeRRFScores(vectorRanks, keywordRanks)
+  logger.info('RAG.RRF.Fusion', {
+    vectorCount: vectors.length,
+    keywordCount: keywords.length,
+    mergedCount: rrfScores.size,
+    overlapCount: vectors.filter(v => keywordMap.has(v.id)).length,
+  })
+
+  const merged = Array.from(rrfScores.entries())
+    .map(([id, scores]) => {
+      const vec = vectorMap.get(id)
+      const kw = keywordMap.get(id)
+      return {
+        id,
+        title: vec?.title ?? kw!.title,
+        content: vec?.content ?? kw!.content,
+        contentType: vec?.contentType ?? kw!.contentType,
+        category: vec?.category ?? kw?.category,
+        metadata: vec?.metadata ?? kw?.metadata,
+        createdAt: vec?.createdAt ?? kw!.createdAt,
+        similarity: scores.rrfScore,
+        // 保留原始分用于调试
+        _vectorRank: scores.vectorRank,
+        _keywordRank: scores.keywordRank,
+        _vectorSim: vec?.similarity ?? 0,
+        _keywordScore: kw?.keywordScore ?? 0,
+      }
+    })
+    .sort((a, b) => b.similarity - a.similarity)
+
+  // 取 top 候选给 reranker
+  let final: DocumentResult[] = merged.slice(0, HYBRID_TOP_K)
+
+  // Reranker
+  if (reranker && final.length > topK) {
+    logger.info('RAG.Reranker.Enabled', { candidates: final.length, topK })
+    const reranked = await rerankResults(query, final, {
+      topK,
+      ...(typeof reranker === 'object' ? reranker : {}),
+    })
+    if (reranked.length > 0) {
+      final = reranked
+    } else {
+      logger.warn('RAG.Reranker.EmptyResult', '重排序返回空，使用原始顺序')
+    }
+  } else {
+    final = final.slice(0, topK)
+  }
+
+  // 最终结果摘要
+  const resultSummary = final.map((r, i) => ({
+    rank: i + 1,
+    title: r.title,
+    sim: Number(r.similarity.toFixed(3)),
+    source: (r as any)._vectorRank !== undefined
+      ? { vectorRank: (r as any)._vectorRank, keywordRank: (r as any)._keywordRank }
+      : 'fallback',
+  }))
+  logger.info('RAG.HybridSearch.Result', {
+    query,
+    topK,
+    totalReturned: final.length,
+    results: resultSummary,
+  })
+
+  return final
+}
+
+// ─── 纯向量搜索（保持原有逻辑） ──────────────────────────────
+async function vectorSearch(
   query: string,
   options: SearchOptions = {}
 ): Promise<DocumentResult[]> {
   try {
     const { topK = 5, category, minSimilarity = DEFAULT_MIN_SIMILARITY } = options
-
-    // 粗召回：多拉一些文档，给阈值过滤留空间
     const recallCount = topK * VECTOR_RECALL_MULTIPLIER
 
-    console.log('RAG 搜索开始 (查分块), 查询:', query)
-    console.log(`  粗召回: ${recallCount} 条, 阈值: ${(minSimilarity * 100).toFixed(0)}%`)
+    logger.info('RAG.VectorSearch.Start', { query, topK, recallCount, minSimilarity, category })
 
-    let queryEmbedding: number[]
-    try {
-      queryEmbedding = await generateEmbedding(query)
-    } catch (embeddingError) {
-      console.warn('⚠️ 无法生成查询 embedding，尝试文本搜索:', embeddingError)
-      return await searchByText(query, options)
-    }
-
+    const queryEmbedding = await generateEmbedding(query)
     const queryEmbeddingString = `[${queryEmbedding.join(',')}]`
+
     let results: any[]
     if (category) {
       results = await prisma.$queryRaw`
         SELECT 
-          dc.id,
-          dc.title,
-          dc.content,
-          d."contentType",
-          d.category,
-          d.metadata,
-          d."createdAt",
+          dc.id, dc.title, dc.content,
+          d."contentType", d.category, d.metadata, d."createdAt",
           1 - (dc.embedding <=> ${queryEmbeddingString}::vector) as similarity
         FROM "DocumentChunk" dc
         JOIN "Document" d ON d.id = dc."documentId"
-        WHERE dc.embedding IS NOT NULL
-        AND d.category = ${category}
+        WHERE dc.embedding IS NOT NULL AND d.category = ${category}
         ORDER BY dc.embedding <=> ${queryEmbeddingString}::vector
         LIMIT ${recallCount}
       `
     } else {
       results = await prisma.$queryRaw`
         SELECT 
-          dc.id,
-          dc.title,
-          dc.content,
-          d."contentType",
-          d.category,
-          d.metadata,
-          d."createdAt",
+          dc.id, dc.title, dc.content,
+          d."contentType", d.category, d.metadata, d."createdAt",
           1 - (dc.embedding <=> ${queryEmbeddingString}::vector) as similarity
         FROM "DocumentChunk" dc
         JOIN "Document" d ON d.id = dc."documentId"
@@ -120,91 +409,31 @@ export async function searchSimilarDocuments(
       `
     }
 
-    console.log(`  粗召回结果: ${(results as any[]).length} 条`)
+    logger.info('RAG.VectorSearch.Recall', { recalled: results.length, category })
 
     const filtered = (results as DocumentResult[]).filter(
-      (r) => r.similarity >= minSimilarity
+      r => r.similarity >= minSimilarity
     )
 
     if (filtered.length < results.length) {
-      console.log(
-        `  阈值过滤: 剔除 ${results.length - filtered.length} 条低相关分块`
-      )
-    }
-
-    const finalResults = filtered.slice(0, topK)
-    console.log(`  最终返回: ${finalResults.length} 条`)
-
-    if (finalResults.length === 0) {
-      console.log('  ⚠️ 所有分块相似度均低于阈值，尝试文本搜索降级')
-      return await searchByText(query, options)
-    }
-
-    return finalResults
-  } catch (error) {
-    console.error('RAG 搜索失败，尝试文本搜索:', error)
-    return await searchByText(query, options)
-  }
-}
-
-async function searchByText(query: string, options: SearchOptions = {}): Promise<DocumentResult[]> {
-  try {
-    const { topK = 5, category } = options
-    console.log('  执行文本搜索降级 (查分块), 查询:', query)
-
-    const keywords = extractKeywords(query)
-    console.log('  提取关键词:', keywords)
-
-    if (keywords.length === 0) {
-      console.log('  无有效关键词，返回空结果')
-      return []
-    }
-
-    const likePatterns = keywords.map(kw => `%${kw}%`)
-
-    let results: any[]
-    if (category) {
-      results = await prisma.$queryRaw`
-        SELECT dc.id, dc.title, dc.content,
-               d."contentType", d.category, d.metadata, d."createdAt"
-        FROM "DocumentChunk" dc
-        JOIN "Document" d ON d.id = dc."documentId"
-        WHERE (dc.title ILIKE ANY(${likePatterns}) OR dc.content ILIKE ANY(${likePatterns}))
-        AND d.category = ${category}
-        ORDER BY dc."createdAt" DESC
-        LIMIT ${topK}
-      `
-    } else {
-      results = await prisma.$queryRaw`
-        SELECT dc.id, dc.title, dc.content,
-               d."contentType", d.category, d.metadata, d."createdAt"
-        FROM "DocumentChunk" dc
-        JOIN "Document" d ON d.id = dc."documentId"
-        WHERE dc.title ILIKE ANY(${likePatterns}) OR dc.content ILIKE ANY(${likePatterns})
-        ORDER BY dc."createdAt" DESC
-        LIMIT ${topK}
-      `
-    }
-
-    console.log('  文本搜索结果数量:', results.length)
-    if (results.length > 0) {
-      results.forEach((r: any, i: number) => {
-        console.log(`    ${i + 1}. ${r.title}: ${r.content.substring(0, 50)}`)
+      logger.info('RAG.VectorSearch.Filtered', {
+        before: results.length,
+        after: filtered.length,
+        removed: results.length - filtered.length,
+        threshold: minSimilarity,
       })
     }
 
-    return results.map((r: any) => ({
-      id: r.id,
-      title: r.title,
-      content: r.content,
-      contentType: r.contentType,
-      category: r.category ?? undefined,
-      metadata: r.metadata as Record<string, unknown> | undefined,
-      createdAt: r.createdAt,
-      similarity: 0.4,
-    }))
-  } catch (textError) {
-    console.error('  文本搜索也失败了:', textError)
+    const final = filtered.slice(0, topK)
+    logger.info('RAG.VectorSearch.Result', {
+      count: final.length,
+      topScore: final[0]?.similarity.toFixed(3) ?? 'N/A',
+      topTitle: final[0]?.title ?? 'N/A',
+    })
+
+    return final
+  } catch (error) {
+    logger.error('RAG.VectorSearch.Error', { error: String(error) })
     return []
   }
 }
