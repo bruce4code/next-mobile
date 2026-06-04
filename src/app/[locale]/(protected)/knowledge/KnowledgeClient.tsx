@@ -65,7 +65,7 @@ export function KnowledgePageClient() {
         params.set('category', selectedCategory)
       }
       
-      const response = await fetch(`/api/documents?${params.toString()}`)
+      const response = await fetch(`/api/documents?${params.toString()}`, { cache: 'no-store' })
       
       if (!response.ok) {
         const errorText = await response.text()
@@ -139,8 +139,8 @@ export function KnowledgePageClient() {
     setIsSaving(true)
     
     try {
-      const response = await fetch('/api/documents', {
-        method: 'POST',
+      const response = await fetch(`/api/documents?id=${editingDoc.id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: editingDoc.title,
@@ -196,7 +196,7 @@ export function KnowledgePageClient() {
         params.set('category', selectedCategory)
       }
       
-      const response = await fetch(`/api/documents?${params.toString()}`)
+      const response = await fetch(`/api/documents?${params.toString()}`, { cache: 'no-store' })
       if (!response.ok) throw new Error('搜索失败')
       const data = await response.json()
       setDocuments(data)
