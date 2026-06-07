@@ -1,0 +1,98 @@
+[
+  {
+    "question": "这款手机支持 5G 吗？",
+    "expected": "回答应基于知识库，说明是否支持5G及频段信息",
+    "type": "product",
+    "difficulty": "easy"
+  },
+  {
+    "question": "购买后多久发货？",
+    "expected": "回答应说明发货时效政策",
+    "type": "policy",
+    "difficulty": "easy"
+  },
+  {
+    "question": "7天无理由退货的条件是什么？",
+    "expected": "回答应引用退换货政策，说明时间范围和条件",
+    "type": "policy",
+    "difficulty": "medium"
+  },
+  {
+    "question": "退货运费谁承担？",
+    "expected": "回答应说明邮费相关政策",
+    "type": "policy",
+    "difficulty": "medium"
+  },
+  {
+    "question": "维修需要多长时间？",
+    "expected": "回答应引用维修政策中的时效说明",
+    "type": "faq",
+    "difficulty": "easy"
+  },
+  {
+    "question": "如何申请退款？",
+    "expected": "回答应说明退款流程和所需材料",
+    "type": "faq",
+    "difficulty": "medium"
+  },
+  {
+    "question": "保修期是多久？",
+    "expected": "回答应引用质保政策中的保修期限",
+    "type": "policy",
+    "difficulty": "easy"
+  },
+  {
+    "question": "这款产品的续航怎么样？",
+    "expected": "回答应基于产品页面说明续航参数",
+    "type": "product",
+    "difficulty": "medium"
+  },
+  {
+    "question": "有哪些支付方式？",
+    "expected": "回答应说明支持的支付方式列表",
+    "type": "faq",
+    "difficulty": "easy"
+  },
+  {
+    "question": "订单物流信息怎么查询？",
+    "expected": "回答应说明物流查询方法",
+    "type": "order",
+    "difficulty": "easy"
+  },
+  {
+    "question": "怎么加入会员？",
+    "expected": "回答应说明会员注册流程",
+    "type": "faq",
+    "difficulty": "medium"
+  },
+  {
+    "question": "发票怎么开？",
+    "expected": "回答应说明发票申请流程",
+    "type": "faq",
+    "difficulty": "medium"
+  },
+  {
+    "question": "你好，今天天气真好呀",
+    "expected": "这是闲聊，不应编造业务回答，可正常问候",
+    "type": "general",
+    "difficulty": "easy"
+  },
+  {
+    "question": "你叫什么名字？",
+    "expected": "这是闲聊，不应编造业务回答",
+    "type": "general",
+    "difficulty": "easy"
+  },
+  {
+    "question": "帮我想一句生日祝福",
+    "expected": "这是通用知识，可以回答但不应声称是平台知识",
+    "type": "general",
+    "difficulty": "easy"
+  },
+  {
+    "question": "怎么煮鸡蛋？",
+    "expected": "这不是平台业务问题，不应以平台知识库角度回答",
+    "type": "general",
+    "difficulty": "easy"
+  }
+]
