@@ -1,4 +1,5 @@
 import OpenAI from "openai"
+import { wrapOpenAI } from 'langsmith/wrappers/openai'
 import { getUser } from '@/app/auth/server'
 import { searchSimilarDocuments, buildRAGContext, extractKeywords } from '@/lib/rag'
 import {
@@ -6,11 +7,11 @@ import {
   DEFAULT_CHAT_MODELS,
 } from '@/lib/openrouter'
 
-// 初始化 OpenRouter 客户端
-const openai = new OpenAI({
+// 初始化 OpenRouter 客户端，并用 wrapOpenAI 启用 LangSmith 自动追踪
+const openai = wrapOpenAI(new OpenAI({
   apiKey: OPENROUTER_CONFIG.apiKey,
   baseURL: OPENROUTER_CONFIG.baseURL,
-})
+}))
 
 const DEFAULT_MODEL_CANDIDATES = DEFAULT_CHAT_MODELS
 
@@ -117,10 +118,17 @@ export async function POST(req: Request) {
 
   let enhancedMessages = messages as Message[]
 
+  // LangSmith metadata：用于在 Dashboard 按用户/请求筛选 trace
+  const user = await getUser()
+  const userId = user?.id ?? "anonymous"
+  const requestId = crypto.randomUUID()
+  let similarDocsCount = 0
   console.log('🔍 Chat API 被调用')
   console.log('  - ENABLE_RAG:', ENABLE_RAG)
   console.log('  - useRAG:', useRAG)
   console.log('  - messages 数量:', messages.length)
+  console.log('  - userId:', userId)
+  console.log('  - requestId:', requestId)
 
   if (ENABLE_RAG && useRAG) {
     try {

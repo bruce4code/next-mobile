@@ -1,12 +1,13 @@
 import { createHash } from 'crypto'
 import OpenAI from "openai"
+import { wrapOpenAI } from 'langsmith/wrappers/openai'
 import prisma from './prisma'
 import { OPENROUTER_CONFIG, DEFAULT_EMBEDDING_MODEL } from './openrouter'
 
-const openai = new OpenAI({
+const openai = wrapOpenAI(new OpenAI({
   apiKey: OPENROUTER_CONFIG.apiKey,
   baseURL: OPENROUTER_CONFIG.baseURL,
-})
+}))
 
 function hashText(text: string): string {
   return createHash('md5').update(text.replace(/\s+/g, '').slice(0, 500)).digest('hex')

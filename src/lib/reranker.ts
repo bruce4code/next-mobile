@@ -10,6 +10,7 @@
  */
 
 import OpenAI from 'openai'
+import { wrapOpenAI } from 'langsmith/wrappers/openai'
 import { logger } from './logger'
 import { OPENROUTER_CONFIG, DEFAULT_RERANKER_MODEL } from './openrouter'
 
@@ -32,10 +33,10 @@ interface DocumentInput {
 // 默认模型：轻量且对中文理解好
 const DEFAULT_MODEL = DEFAULT_RERANKER_MODEL
 
-const openai = new OpenAI({
+const openai = wrapOpenAI(new OpenAI({
   apiKey: OPENROUTER_CONFIG.apiKey,
   baseURL: OPENROUTER_CONFIG.baseURL,
-})
+}))
 
 /**
  * 构建 reranker 提示词

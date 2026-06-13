@@ -3,10 +3,15 @@ import prisma from './prisma'
 import { generateEmbedding, generateEmbeddings } from './embedding'
 import { rerankResults, type RerankerOptions } from './reranker'
 import { logger } from './logger'
-import * as jieba from 'nodejieba'
+import { Jieba, TfIdf } from '@node-rs/jieba'
+import { dict, idf } from '@node-rs/jieba/dict'
 import { chunkDocument } from './chunking'
 
-// 停用词（nodejieba 的 extract 已内置过滤，这里仅作额外兜底）
+// 初始化 jieba 分词器和 TF-IDF（模块级单例，避免重复加载词典）
+const jieba = Jieba.withDict(dict)
+const tfidf = TfIdf.withDict(idf)
+
+// 停用词（jieba 的 extractKeywords 已内置过滤，这里仅作额外兜底）
 const STOP_WORDS = new Set([
   '的', '了', '在', '是', '我', '你', '他', '她', '它',
   '这', '那', '哪', '谁', '什么', '怎么', '如何', '为何',
@@ -62,11 +67,11 @@ const KEYWORD_RECALL_MULTIPLIER = 3
 const RRF_K = 60  // RRF 常数，越小 keyword 结果权重越高
 const HYBRID_TOP_K = 10  // 融合后给 reranker 的候选数
 
-// 使用 nodejieba 的 TF-IDF 算法提取关键词
+// 使用 jieba 的 TF-IDF 算法提取关键词
 export function extractKeywords(text: string): string[] {
-  const keywords = jieba.extract(text, 5)
+  const keywords = tfidf.extractKeywords(jieba, text, 5)
   return keywords
-    .map(k => k.word)
+    .map(k => k.keyword)
     .filter(word => word.length > 0 && !STOP_WORDS.has(word) && !/^\d+$/.test(word))
 }
 
