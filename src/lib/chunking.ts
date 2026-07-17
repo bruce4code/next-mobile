@@ -4,7 +4,13 @@ export interface Chunk {
   title: string
   content: string
   index: number
+  heading: string | null
+  startOffset: number | null
+  endOffset: number | null
 }
+
+export const PARSER_VERSION = 'inline-text-v1'
+export const CHUNKING_VERSION = 'langchain-300-50-v1'
 
 const mdSplitter = new MarkdownTextSplitter({
   chunkSize: 300,
@@ -24,12 +30,22 @@ export async function chunkDocument(title: string, content: string, contentType:
     rawChunks = await textSplitter.splitText(content)
   }
 
+  let searchOffset = 0
+
   return rawChunks.map((text, index) => {
     const heading = extractHeading(text)
+    let startOffset = content.indexOf(text, searchOffset)
+    if (startOffset < 0) startOffset = content.indexOf(text)
+    const endOffset = startOffset >= 0 ? startOffset + text.length : null
+    if (startOffset >= 0) searchOffset = startOffset + 1
+
     return {
       title: heading ? `${title} > ${heading}` : title,
       content: text,
       index,
+      heading,
+      startOffset: startOffset >= 0 ? startOffset : null,
+      endOffset,
     }
   })
 }
