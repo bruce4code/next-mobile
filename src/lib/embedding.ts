@@ -2,11 +2,11 @@ import { createHash } from 'crypto'
 import OpenAI from "openai"
 import { wrapOpenAI } from 'langsmith/wrappers/openai'
 import prisma from './prisma'
-import { OPENROUTER_CONFIG, DEFAULT_EMBEDDING_MODEL } from './openrouter'
+import { LLM_CONFIG, DEFAULT_EMBEDDING_MODEL } from './llm-config'
 
 const openai = wrapOpenAI(new OpenAI({
-  apiKey: OPENROUTER_CONFIG.apiKey,
-  baseURL: OPENROUTER_CONFIG.baseURL,
+  apiKey: LLM_CONFIG.apiKey,
+  baseURL: LLM_CONFIG.baseURL,
 }))
 
 function hashText(text: string): string {

@@ -3,14 +3,14 @@ import { wrapOpenAI } from 'langsmith/wrappers/openai'
 import { getUser } from '@/app/auth/server'
 import { searchSimilarDocuments, buildRAGContext, extractKeywords } from '@/lib/rag'
 import {
-  OPENROUTER_CONFIG,
+  LLM_CONFIG,
   DEFAULT_CHAT_MODELS,
-} from '@/lib/openrouter'
+} from '@/lib/llm-config'
 
-// 初始化 OpenRouter 客户端，并用 wrapOpenAI 启用 LangSmith 自动追踪
+// 初始化 LLM 客户端，并用 wrapOpenAI 启用 LangSmith 自动追踪
 const openai = wrapOpenAI(new OpenAI({
-  apiKey: OPENROUTER_CONFIG.apiKey,
-  baseURL: OPENROUTER_CONFIG.baseURL,
+  apiKey: LLM_CONFIG.apiKey,
+  baseURL: LLM_CONFIG.baseURL,
 }))
 
 const DEFAULT_MODEL_CANDIDATES = DEFAULT_CHAT_MODELS
@@ -19,6 +19,7 @@ const ENABLE_RAG = true
 
 type SSETransformOptions = {
   attemptedModel: string
+  requestId: string
 }
 
 interface Message {
@@ -26,11 +27,15 @@ interface Message {
   content: string
 }
 
-function createSseTransform({ attemptedModel }: SSETransformOptions) {
+function createSseTransform({ attemptedModel, requestId }: SSETransformOptions) {
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
 
   return new TransformStream<Uint8Array, Uint8Array>({
+    async start(controller) {
+      // 发送初始 metadata 事件（含 requestId，供前端反馈使用）
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'metadata', requestId, model: attemptedModel })}\n\n`))
+    },
     async transform(chunk, controller) {
       const text = decoder.decode(chunk)
 
@@ -66,7 +71,8 @@ function createSseTransform({ attemptedModel }: SSETransformOptions) {
 }
 
 function resolveModelCandidates() {
-  const configured = process.env.OPENROUTER_MODEL
+  const modelStr = process.env.LLM_MODEL || process.env.OPENROUTER_MODEL
+  const configured = modelStr
     ?.split(",")
     .map((model) => model.trim())
     .filter(Boolean)
@@ -153,6 +159,7 @@ export async function POST(req: Request) {
           )
 
           if (similarDocs.length > 0) {
+            similarDocsCount = similarDocs.length
             console.log(`✅ 找到 ${similarDocs.length} 个相关文档:`)
             similarDocs.forEach((doc, index) => {
               console.log(`  ${index + 1}. ${doc.title}: ${doc.content.substring(0, 80)}`)
@@ -202,13 +209,26 @@ export async function POST(req: Request) {
       console.log("请求 OpenRouter 模型:", model)
       const response = await openai.chat.completions.create({
         model,
-        messages: enhancedMessages,
+        messages: enhancedMessages as any[],
         stream: true,
+      }, {
+        langsmithExtra: {
+          metadata: {
+            userId,
+            requestId,
+            modelName: model,
+            isRAG: ENABLE_RAG && useRAG && similarDocsCount > 0,
+            ragDocCount: similarDocsCount,
+            messageCount: messages.length,
+            environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? 'development',
+          },
+          tags: ['production', 'chat', ENABLE_RAG && useRAG ? 'rag' : 'no-rag'],
+        },
       })
 
       const responseStream = response
         .toReadableStream()
-        .pipeThrough(createSseTransform({ attemptedModel: model }))
+        .pipeThrough(createSseTransform({ attemptedModel: model, requestId }))
 
       return new Response(responseStream, {
         headers: {
@@ -216,6 +236,7 @@ export async function POST(req: Request) {
           "Cache-Control": "no-cache",
           Connection: "keep-alive",
           "X-OpenRouter-Model": model,
+          "X-Request-Id": requestId,
         },
       })
     } catch (error) {
