@@ -23,7 +23,8 @@ export const LLM_CONFIG = {
 export const DEFAULT_EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'Qwen/Qwen3-Embedding-8B'
 
 // ─── reranker ─────────────────────────────────────────────
-export const DEFAULT_RERANKER_MODEL = process.env.RERANKER_MODEL || 'Qwen/Qwen3-8B'
+export const DEFAULT_RERANKER_MODEL = process.env.RERANKER_MODEL || 'BAAI/bge-reranker-v2-m3'
+export const DEFAULT_LLM_RERANKER_MODEL = process.env.LLM_RERANKER_MODEL || 'Qwen/Qwen3-8B'
 
 // ─── chat ─────────────────────────────────────────────────
 export const DEFAULT_CHAT_MODELS = (() => {

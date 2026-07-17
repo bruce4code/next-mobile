@@ -44,10 +44,10 @@ const authCookie = process.env.TEST_AUTH_COOKIE
 const isDryRun = process.argv.includes("--dry-run")
 const isQuick = process.argv.includes("--quick")
 
-// ─── OpenRouter 客户端 ─────────────────────────────────────
+// ─── LLM 客户端（硅基流动） ────────────────────────────────
 const openai = wrapOpenAI(new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY || "",
-  baseURL: process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
+  apiKey: process.env.SILICONFLOW_API_KEY || process.env.OPENROUTER_API_KEY || "",
+  baseURL: process.env.LLM_BASE_URL || "https://api.siliconflow.cn/v1",
 }))
 
 // ─── 评估器 ────────────────────────────────────────────────
@@ -75,7 +75,7 @@ ${output}
 {"correctness": 分数, "relevance": 分数, "faithfulness": 分数, "comment": "简要评价"}`
 
   const res = await openai.chat.completions.create({
-    model: "qwen/qwen3-8b",
+    model: "Qwen/Qwen3-8B",
     messages: [{ role: "user", content: prompt }],
     temperature: 0,
     response_format: { type: "json_object" },

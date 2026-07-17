@@ -20,6 +20,20 @@ const PAGE_SIZE = 10
 // 定义消息内容类型
 type MessageContent = string | { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
 
+type SourceCitation = {
+  citationId: string
+  documentId: string
+  chunkId: string
+  title: string
+  heading?: string
+  sourceName?: string
+  sourceUri?: string
+  sourceVersion: number
+  startOffset?: number
+  endOffset?: number
+  score: number
+}
+
 // 定义消息类型
 type Message = {
   role: 'user' | 'assistant'
@@ -27,12 +41,36 @@ type Message = {
   displayContent: string
   imageUrl?: string
   id?: string
+  requestId?: string
+  citations?: SourceCitation[]
+}
+
+type StoredChatMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  metadata?: unknown
+}
+
+type ChatHistoryResponse = {
+  messages: StoredChatMessage[]
+  nextCursorCreatedAt: string | null
+  hasMore: boolean
+}
+
+function readMessageMetadata(metadata: unknown) {
+  if (!metadata || typeof metadata !== 'object') return {}
+  const value = metadata as { requestId?: unknown; citations?: unknown }
+  return {
+    requestId: typeof value.requestId === 'string' ? value.requestId : undefined,
+    citations: Array.isArray(value.citations) ? value.citations as SourceCitation[] : undefined,
+  }
 }
 
 interface ChatPanelProps {
   initialConversationId?: string | null
   currentUser: User | null
-  initialMessages?: Array<{ id: string; role: string; content: string; createdAt: Date }>
+  initialMessages?: Array<{ id: string; role: string; content: string; metadata?: unknown; createdAt: Date }>
   initialHasMore?: boolean
   initialCursor?: string | null
 }
@@ -51,6 +89,7 @@ export default function ChatPanel({
       role: msg.role as 'user' | 'assistant',
       content: msg.content,
       displayContent: typeof msg.content === 'string' ? msg.content : '',
+      ...readMessageMetadata(msg.metadata),
     })) ?? []
   )
   const [input, setInput] = useState('')
@@ -108,6 +147,7 @@ export default function ChatPanel({
           role: msg.role as 'user' | 'assistant',
           content: msg.content,
           displayContent: typeof msg.content === 'string' ? msg.content : '',
+          ...readMessageMetadata(msg.metadata),
         })))
         setHasMore(initialHasMore)
         nextCursorRef.current = initialCursor
@@ -124,16 +164,17 @@ export default function ChatPanel({
             { signal: ac.signal }
           );
           if (!res.ok) throw new Error(`请求失败: ${res.status}`);
-          const data = await res.json();
+          const data = await res.json() as ChatHistoryResponse;
           if (initialConversationId && data.messages.length === 0 && !data.hasMore) {
             setShouldNotFound(true);
             return;
           }
-          setMessages(data.messages.map((msg: any) => ({
+          setMessages(data.messages.map((msg) => ({
             id: msg.id || uuidv4(),
             role: msg.role,
             content: msg.content,
             displayContent: typeof msg.content === 'string' ? msg.content : '',
+            ...readMessageMetadata(msg.metadata),
           })));
           setHasMore(data.hasMore);
           nextCursorRef.current = data.nextCursorCreatedAt;
@@ -279,6 +320,12 @@ export default function ChatPanel({
         for (const jsonStr of jsonObjects.objects) {
           try {
             const jsonData = JSON.parse(jsonStr)
+            if (jsonData.type === 'metadata') {
+              assistantMessage.requestId = typeof jsonData.requestId === 'string' ? jsonData.requestId : undefined
+              assistantMessage.citations = Array.isArray(jsonData.citations) ? jsonData.citations : undefined
+              setMessages(prev => prev.map(m => m.id === assistantMessage.id ? { ...assistantMessage } : m))
+              continue
+            }
             if (jsonData.choices?.[0]?.delta?.content) {
               let content = jsonData.choices[0].delta.content
               if (typeof content === 'object' && content !== null) {
@@ -316,6 +363,10 @@ export default function ChatPanel({
             role: 'assistant',
             content: fullAssistantContent,
             conversationId: convId,
+            metadata: {
+              requestId: assistantMessage.requestId,
+              citations: assistantMessage.citations,
+            },
           }),
         });
       }
@@ -441,14 +492,15 @@ export default function ChatPanel({
         { signal: ac.signal }
       )
       if (!res.ok) throw new Error(`请求失败: ${res.status}`)
-      const data = await res.json()
+      const data = await res.json() as ChatHistoryResponse
 
       setMessages(prev => [
-        ...data.messages.map((msg: any) => ({
+        ...data.messages.map((msg) => ({
           id: msg.id || uuidv4(),
           role: msg.role,
           content: msg.content,
           displayContent: typeof msg.content === 'string' ? msg.content : '',
+          ...readMessageMetadata(msg.metadata),
         })),
         ...prev,
       ])
@@ -553,8 +605,29 @@ export default function ChatPanel({
                   <p className="text-sm whitespace-pre-wrap">{message.displayContent}</p>
                 </div>
               ) : (
-                <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <ChatMarkdown content={typeof message.content === 'string' ? message.content : ''} />
+                <div>
+                  <div className="prose prose-sm dark:prose-invert max-w-none">
+                    <ChatMarkdown content={typeof message.content === 'string' ? message.content : ''} />
+                  </div>
+                  {message.citations && message.citations.length > 0 && (
+                    <details className="mt-3 border-t pt-2 text-xs text-muted-foreground">
+                      <summary className="cursor-pointer select-none font-medium">
+                        来源 {message.citations.length}
+                      </summary>
+                      <ol className="mt-2 space-y-2">
+                        {message.citations.map((citation) => (
+                          <li key={citation.chunkId} className="flex gap-2">
+                            <span className="font-mono text-foreground">[{citation.citationId}]</span>
+                            <span>
+                              {citation.sourceName || citation.title}
+                              {citation.heading ? ` / ${citation.heading}` : ''}
+                              {` · v${citation.sourceVersion}`}
+                            </span>
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
+                  )}
                 </div>
               )}
             </div>

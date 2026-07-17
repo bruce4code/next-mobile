@@ -60,7 +60,7 @@ export function AppSidebar() {
       if (!user) return
 
       try {
-        const chats = await cachedGetChatHistory(user.id);
+        const chats = await cachedGetChatHistory();
         console.log("chats", chats);
         
         const mappedChats = chats.map((chat: any) => {

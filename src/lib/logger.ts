@@ -58,8 +58,22 @@ function createLogEntry(
     level,
     tag,
     message,
-    data: payload,
+    data: redactSensitiveData(payload),
   }
+}
+
+function redactSensitiveData(data?: Record<string, unknown>) {
+  if (!data) return data
+
+  const sensitiveKeys = new Set(['content', 'comment', 'keywords', 'prompt', 'query', 'text', 'title'])
+  return Object.fromEntries(
+    Object.entries(data).map(([key, value]) => [
+      key,
+      sensitiveKeys.has(key.toLowerCase()) && typeof value === 'string'
+        ? `[redacted:${value.length} chars]`
+        : value,
+    ]),
+  )
 }
 
 export const logger = {

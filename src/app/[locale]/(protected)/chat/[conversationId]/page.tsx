@@ -21,7 +21,7 @@ export default async function ConversationChatPage({
   if (!user) redirect('/login')
 
   const rawMessages = await prisma.openRouterChat.findMany({
-    where: { conversationId },
+    where: { conversationId, userId: user.id },
     orderBy: { createdAt: 'desc' },
     take: PAGE_SIZE + 1,
   })
@@ -33,6 +33,7 @@ export default async function ConversationChatPage({
     id: msg.id,
     role: msg.role,
     content: msg.content,
+    metadata: msg.metadata,
     createdAt: msg.createdAt,
   }))
 
