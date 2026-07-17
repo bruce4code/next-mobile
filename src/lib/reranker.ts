@@ -1,18 +1,9 @@
-/**
- * LLM-based Reranker
- *
- * 对 RRF 融合后的 top-N 候选结果，用 LLM 做精排。
- * 通过单次 API 调用对多个文档批量评分，返回重新排序后的结果。
- *
- * 适用场景：当 top-K 候选数 > 最终需要的数量时，用 LLM 提升精度。
- * 注意事项：会增加 ~200ms 延迟和少量 token 消耗，默认关闭，
- * 可通过环境变量 RERANKER_ENABLED=true 开启。
- */
+/** Dedicated reranker with an LLM-scoring fallback. */
 
 import OpenAI from 'openai'
 import { wrapOpenAI } from 'langsmith/wrappers/openai'
 import { logger } from './logger'
-import { OPENROUTER_CONFIG, DEFAULT_RERANKER_MODEL } from './openrouter'
+import { LLM_CONFIG, DEFAULT_LLM_RERANKER_MODEL, DEFAULT_RERANKER_MODEL } from './llm-config'
 
 export interface RerankerOptions {
   enabled?: boolean
@@ -20,29 +11,29 @@ export interface RerankerOptions {
   topK?: number
   /** 使用的模型，默认 qwen/qwen3-8b */
   model?: string
+  provider?: 'dedicated' | 'llm'
+  fallbackModel?: string
 }
 
-interface DocumentInput {
+interface RerankCandidate {
   id: string
   title: string
   content: string
   similarity: number
-  [key: string]: unknown
 }
 
-// 默认模型：轻量且对中文理解好
 const DEFAULT_MODEL = DEFAULT_RERANKER_MODEL
 
 const openai = wrapOpenAI(new OpenAI({
-  apiKey: OPENROUTER_CONFIG.apiKey,
-  baseURL: OPENROUTER_CONFIG.baseURL,
+  apiKey: LLM_CONFIG.apiKey,
+  baseURL: LLM_CONFIG.baseURL,
 }))
 
 /**
  * 构建 reranker 提示词
  * 要求 LLM 对每个候选文档的 relevance 打分 (0-10)
  */
-function buildPrompt(query: string, documents: DocumentInput[]): string {
+function buildPrompt(query: string, documents: RerankCandidate[]): string {
   return `你是一个文档相关性评估专家。请判断以下文档与用户问题的相关程度。
 
 用户问题: "${query}"
@@ -65,6 +56,100 @@ ${documents.map((doc, i) => `[${i}] ${doc.title}
 ${doc.content.slice(0, 300)}`).join('\n\n')}`
 }
 
+interface DedicatedRerankResponse {
+  results?: Array<{
+    index: number
+    relevance_score: number
+  }>
+}
+
+function applyScores<T extends RerankCandidate>(
+  candidates: T[],
+  scores: Array<{ index: number; score: number }>,
+  topK: number,
+) {
+  const scoreMap = new Map(scores.map((score) => [score.index, score.score]))
+  return candidates
+    .map((candidate, index) => ({
+      ...candidate,
+      similarity: scoreMap.get(index) ?? candidate.similarity,
+    }))
+    .sort((left, right) => right.similarity - left.similarity)
+    .slice(0, topK)
+}
+
+async function rerankWithDedicatedModel<T extends RerankCandidate>(
+  query: string,
+  candidates: T[],
+  topK: number,
+  model: string,
+) {
+  const response = await fetch(`${LLM_CONFIG.baseURL.replace(/\/$/, '')}/rerank`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${LLM_CONFIG.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      query,
+      documents: candidates.map((candidate) => `${candidate.title}\n${candidate.content}`),
+      top_n: topK,
+      return_documents: false,
+    }),
+    signal: AbortSignal.timeout(8_000),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Dedicated reranker returned ${response.status}`)
+  }
+
+  const payload = await response.json() as DedicatedRerankResponse
+  if (!payload.results?.length) throw new Error('Dedicated reranker returned no results')
+
+  return applyScores(
+    candidates,
+    payload.results.map((result) => ({ index: result.index, score: result.relevance_score })),
+    topK,
+  )
+}
+
+async function rerankWithLlm<T extends RerankCandidate>(
+  query: string,
+  candidates: T[],
+  topK: number,
+  model: string,
+) {
+  const prompt = buildPrompt(query, candidates)
+  const response = await openai.chat.completions.create({
+    model,
+    messages: [{ role: 'user', content: prompt }],
+    temperature: 0.1,
+    max_tokens: 500,
+    response_format: { type: 'json_object' },
+  }, {
+    langsmithExtra: {
+      tags: ['reranker', 'rag'],
+      metadata: { candidateCount: candidates.length, provider: 'llm-fallback' },
+    },
+  })
+
+  const content = response.choices[0]?.message?.content
+  if (!content) throw new Error('LLM reranker returned an empty response')
+
+  const parsed = JSON.parse(content)
+  const scores: Array<{ index: number; relevance: number }> = parsed.scores ?? parsed
+  if (!Array.isArray(scores) || scores.length === 0) {
+    throw new Error('LLM reranker returned invalid scores')
+  }
+
+  return applyScores(
+    candidates,
+    scores.map((score) => ({ index: score.index, score: score.relevance / 10 })),
+    topK,
+  )
+}
+
 /**
  * 对候选文档进行 LLM 重排序
  *
@@ -73,67 +158,38 @@ ${doc.content.slice(0, 300)}`).join('\n\n')}`
  * @param options 重排序选项
  * @returns 重新排序后的文档列表
  */
-export async function rerankResults(
+export async function rerankResults<T extends RerankCandidate>(
   query: string,
-  candidates: DocumentInput[],
+  candidates: T[],
   options: RerankerOptions = {},
-): Promise<DocumentInput[]> {
-  const { topK = 5, model = DEFAULT_MODEL } = options
+): Promise<T[]> {
+  const {
+    topK = 5,
+    model = DEFAULT_MODEL,
+    provider = 'dedicated',
+    fallbackModel = DEFAULT_LLM_RERANKER_MODEL,
+  } = options
 
   // 候选数 <= 目标数，不需要重排序
   if (candidates.length <= topK) {
     return candidates.slice(0, topK)
   }
 
-  logger.info('RAG.Reranker.Start', { candidates: candidates.length, topK, model })
+  logger.info('RAG.Reranker.Start', { candidates: candidates.length, topK, model, provider })
 
   try {
-    const prompt = buildPrompt(query, candidates)
-
-    const response = await openai.chat.completions.create({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1,
-      max_tokens: 500,
-      response_format: { type: 'json_object' },
-    })
-
-    const content = response.choices[0]?.message?.content
-    if (!content) {
-      logger.warn('RAG.Reranker.EmptyResponse', 'LLM 返回为空，跳过重排序')
-      return candidates.slice(0, topK)
+    let final: T[]
+    if (provider === 'llm') {
+      final = await rerankWithLlm(query, candidates, topK, fallbackModel)
+    } else {
+      try {
+        final = await rerankWithDedicatedModel(query, candidates, topK, model)
+      } catch (dedicatedError) {
+        logger.warn('RAG.Reranker.DedicatedFallback', { error: String(dedicatedError) })
+        final = await rerankWithLlm(query, candidates, topK, fallbackModel)
+      }
     }
 
-    // 解析 JSON 响应
-    const parsed = JSON.parse(content)
-    const scores: Array<{ index: number; relevance: number }> = parsed.scores ?? parsed
-
-    if (!Array.isArray(scores) || scores.length === 0) {
-      logger.warn('RAG.Reranker.InvalidJSON', { raw: content.slice(0, 100) })
-      return candidates.slice(0, topK)
-    }
-
-    logger.info('RAG.Reranker.Scored', {
-      scores: scores.map(s => ({ index: s.index, relevance: s.relevance })),
-    })
-
-    // 创建 index → score 映射
-    const relevanceMap = new Map<number, number>()
-    for (const s of scores) {
-      relevanceMap.set(s.index, s.relevance)
-    }
-
-    // 按 relevance 降序排列
-    const reordered = candidates
-      .map((doc, i) => ({
-        ...doc,
-        similarity: relevanceMap.get(i) !== undefined
-          ? (relevanceMap.get(i)! / 10)  // 归一化到 [0, 1]
-          : doc.similarity,
-      }))
-      .sort((a, b) => b.similarity - a.similarity)
-
-    const final = reordered.slice(0, topK)
     logger.info('RAG.Reranker.Result', {
       count: final.length,
       topScore: final[0].similarity.toFixed(3),
@@ -141,7 +197,7 @@ export async function rerankResults(
       results: final.map((r, i) => ({
         rank: i + 1,
         title: r.title,
-        score: Number((r.similarity * 10).toFixed(1)),
+        score: Number(r.similarity.toFixed(3)),
       })),
     })
 

@@ -10,7 +10,7 @@ const openai = wrapOpenAI(new OpenAI({
 }))
 
 function hashText(text: string): string {
-  return createHash('md5').update(text.replace(/\s+/g, '').slice(0, 500)).digest('hex')
+  return createHash('sha256').update(text.replace(/\s+/g, '')).digest('hex')
 }
 
 export async function generateEmbedding(text: string): Promise<number[]> {
@@ -98,4 +98,3 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
     throw error
   }
 }
-
