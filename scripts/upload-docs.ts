@@ -18,6 +18,7 @@
 
 import fs from 'fs'
 import path from 'path'
+import { createHash } from 'crypto'
 
 const DOCS_DIR = path.resolve(__dirname, '../docs/ecommerce')
 const API_URL = process.env.API_URL || 'http://localhost:3000'
@@ -49,7 +50,10 @@ async function uploadDocument(
   try {
     const response = await fetch(`${API_URL}/api/documents`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': createHash('sha256').update(`${title}\n${content}`).digest('hex'),
+      },
       body: JSON.stringify({
         title,
         content,

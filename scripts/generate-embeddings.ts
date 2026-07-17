@@ -9,11 +9,11 @@ config({ path: path.resolve(process.cwd(), '.env') })
 const prisma = new PrismaClient()
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY || '',
-  baseURL: 'https://openrouter.ai/api/v1',
+  apiKey: process.env.SILICONFLOW_API_KEY || process.env.OPENROUTER_API_KEY || '',
+  baseURL: process.env.LLM_BASE_URL || 'https://api.siliconflow.cn/v1',
 })
 
-const DEFAULT_EMBEDDING_MODEL = 'openai/text-embedding-3-small'
+const DEFAULT_EMBEDDING_MODEL = 'BAAI/bge-m3'
 
 async function generateEmbedding(text: string): Promise<number[]> {
   console.log(`  生成 embedding...`)

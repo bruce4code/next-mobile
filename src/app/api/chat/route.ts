@@ -1,11 +1,20 @@
 import OpenAI from "openai"
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { wrapOpenAI } from 'langsmith/wrappers/openai'
 import { getUser } from '@/app/auth/server'
-import { searchSimilarDocuments, buildRAGContext, extractKeywords } from '@/lib/rag'
+import {
+  searchSimilarDocuments,
+  buildRAGContext,
+  extractKeywords,
+  rewriteRetrievalQuery,
+  toRAGCitations,
+  type RAGCitation,
+} from '@/lib/rag'
 import {
   LLM_CONFIG,
   DEFAULT_CHAT_MODELS,
 } from '@/lib/llm-config'
+import { z } from 'zod'
 
 // 初始化 LLM 客户端，并用 wrapOpenAI 启用 LangSmith 自动追踪
 const openai = wrapOpenAI(new OpenAI({
@@ -20,21 +29,40 @@ const ENABLE_RAG = true
 type SSETransformOptions = {
   attemptedModel: string
   requestId: string
+  citations: RAGCitation[]
 }
 
 interface Message {
-  role: string
+  role: 'user' | 'assistant' | 'system'
   content: string
 }
 
-function createSseTransform({ attemptedModel, requestId }: SSETransformOptions) {
+const ChatRequestSchema = z.object({
+  messages: z.array(z.object({
+    role: z.enum(['user', 'assistant']),
+    content: z.string().trim().min(1).max(12_000),
+  })).min(1).max(30),
+  useRAG: z.boolean().optional().default(true),
+}).superRefine(({ messages }, context) => {
+  const totalCharacters = messages.reduce((total, message) => total + message.content.length, 0)
+  if (totalCharacters > 100_000) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: '消息总长度不能超过 100000 个字符' })
+  }
+})
+
+function createSseTransform({ attemptedModel, requestId, citations }: SSETransformOptions) {
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
 
   return new TransformStream<Uint8Array, Uint8Array>({
     async start(controller) {
       // 发送初始 metadata 事件（含 requestId，供前端反馈使用）
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'metadata', requestId, model: attemptedModel })}\n\n`))
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+        type: 'metadata',
+        requestId,
+        model: attemptedModel,
+        citations,
+      })}\n\n`))
     },
     async transform(chunk, controller) {
       const text = decoder.decode(chunk)
@@ -86,7 +114,7 @@ function resolveModelCandidates() {
 
 function isAuthOrKeyError(error: unknown) {
   if (error instanceof OpenAI.APIError) {
-    const status = error.status ?? error.statusCode
+    const status = error.status
     return status === 401 || status === 403
   }
 
@@ -101,7 +129,7 @@ function isAuthOrKeyError(error: unknown) {
 }
 
 export async function POST(req: Request) {
-  let body: { messages?: unknown; useRAG?: boolean }
+  let body: unknown
 
   try {
     body = await req.json()
@@ -113,22 +141,30 @@ export async function POST(req: Request) {
     )
   }
 
-  const { messages, useRAG = true } = body
-
-  if (!Array.isArray(messages)) {
+  const parsed = ChatRequestSchema.safeParse(body)
+  if (!parsed.success) {
     return new Response(
-      JSON.stringify({ error: "messages 字段必须是数组" }),
+      JSON.stringify({ error: '请求参数校验失败', details: parsed.error.issues }),
       { status: 400, headers: { "Content-Type": "application/json" } },
     )
   }
 
-  let enhancedMessages = messages as Message[]
+  const { messages, useRAG } = parsed.data
+  const user = await getUser()
+  if (!user) {
+    return new Response(
+      JSON.stringify({ error: '未登录' }),
+      { status: 401, headers: { "Content-Type": "application/json" } },
+    )
+  }
+
+  let enhancedMessages: Message[] = messages
 
   // LangSmith metadata：用于在 Dashboard 按用户/请求筛选 trace
-  const user = await getUser()
-  const userId = user?.id ?? "anonymous"
+  const userId = user.id
   const requestId = crypto.randomUUID()
   let similarDocsCount = 0
+  let citations: RAGCitation[] = []
   console.log('🔍 Chat API 被调用')
   console.log('  - ENABLE_RAG:', ENABLE_RAG)
   console.log('  - useRAG:', useRAG)
@@ -146,25 +182,26 @@ export async function POST(req: Request) {
       console.log('  - lastUserMessage:', lastUserMessage ? '找到' : '未找到')
 
       if (lastUserMessage?.content) {
-        console.log('🧠 使用 RAG 搜索相关文档, 查询:', lastUserMessage.content.substring(0, 100) + '...')
+        const retrievalQuery = rewriteRetrievalQuery(enhancedMessages)
+        console.log('🧠 使用 RAG 搜索相关文档, 查询长度:', retrievalQuery.length)
         
         // 闲聊/问候语检测：无有效关键词时跳过 RAG
-        const keywords = extractKeywords(lastUserMessage.content)
-        console.log('  - 提取到的关键词:', keywords)
+        const keywords = extractKeywords(retrievalQuery)
+        console.log('  - 提取到的关键词数量:', keywords.length)
         if (keywords.length > 0) {
           try {
           const similarDocs = await searchSimilarDocuments(
-            lastUserMessage.content,
-            { topK: 5, mode: 'hybrid', reranker: { topK: 5 } }
+            retrievalQuery,
+            { userId, topK: 5, mode: 'hybrid', reranker: { topK: 5 } }
           )
 
           if (similarDocs.length > 0) {
             similarDocsCount = similarDocs.length
+            citations = toRAGCitations(similarDocs)
             console.log(`✅ 找到 ${similarDocs.length} 个相关文档:`)
             similarDocs.forEach((doc, index) => {
-              console.log(`  ${index + 1}. ${doc.title}: ${doc.content.substring(0, 80)}`)
               const similarity = doc.similarity ? ` (相似度: ${(doc.similarity * 100).toFixed(1)}%)` : ''
-              console.log(`    相似度${similarity}`)
+              console.log(`  ${index + 1}. 已检索文档${similarity}`)
             })
             
             const ragContext = buildRAGContext(similarDocs)
@@ -209,7 +246,7 @@ export async function POST(req: Request) {
       console.log("请求 OpenRouter 模型:", model)
       const response = await openai.chat.completions.create({
         model,
-        messages: enhancedMessages as any[],
+        messages: enhancedMessages as ChatCompletionMessageParam[],
         stream: true,
       }, {
         langsmithExtra: {
@@ -219,6 +256,7 @@ export async function POST(req: Request) {
             modelName: model,
             isRAG: ENABLE_RAG && useRAG && similarDocsCount > 0,
             ragDocCount: similarDocsCount,
+            citationIds: citations.map((citation) => citation.citationId),
             messageCount: messages.length,
             environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? 'development',
           },
@@ -228,7 +266,7 @@ export async function POST(req: Request) {
 
       const responseStream = response
         .toReadableStream()
-        .pipeThrough(createSseTransform({ attemptedModel: model, requestId }))
+        .pipeThrough(createSseTransform({ attemptedModel: model, requestId, citations }))
 
       return new Response(responseStream, {
         headers: {

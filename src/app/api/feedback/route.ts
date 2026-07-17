@@ -11,38 +11,40 @@
 
 import { Client } from 'langsmith'
 import { getUser } from '@/app/auth/server'
+import { z } from 'zod'
 
 const client = new Client()
 
+const FeedbackSchema = z.object({
+  requestId: z.string().uuid(),
+  score: z.union([z.literal(0), z.literal(1)]),
+  comment: z.string().trim().max(2_000).optional(),
+})
+
 export async function POST(req: Request) {
   try {
-    const body = await req.json()
-    const { requestId, score, comment } = body as {
-      requestId?: string
-      score?: number
-      comment?: string
-    }
-
-    if (!requestId || score === undefined) {
-      return new Response(
-        JSON.stringify({ error: '缺少必填字段: requestId, score' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } },
-      )
-    }
-
-    if (score !== 0 && score !== 1) {
-      return new Response(
-        JSON.stringify({ error: 'score 必须是 0（点踩）或 1（点赞）' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } },
-      )
-    }
-
     const user = await getUser()
-    const userId = user?.id ?? 'anonymous'
+    if (!user) {
+      return new Response(
+        JSON.stringify({ error: '未登录' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+
+    const parsed = FeedbackSchema.safeParse(await req.json())
+    if (!parsed.success) {
+      return new Response(
+        JSON.stringify({ error: '请求参数校验失败', details: parsed.error.issues }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      )
+    }
+
+    const { requestId, score, comment } = parsed.data
+    const userId = user.id
 
     // 将反馈创建为 LangSmith 中的一个 run，便于在 Dashboard 查看
     // metadata 中包含 requestId + userId，可在 Dashboard 搜索对应 trace
-    const run = await client.createRun({
+    await client.createRun({
       name: `User Feedback — ${requestId}`,
       run_type: 'chain',
       inputs: { requestId, score, comment: comment ?? '' },
@@ -50,20 +52,21 @@ export async function POST(req: Request) {
         verdict: score === 1 ? 'positive' : 'negative',
         comment: comment ?? '',
       },
-      metadata: {
-        requestId,
-        userId,
-        feedbackType: 'user_rating',
+      extra: {
+        metadata: {
+          requestId,
+          userId,
+          feedbackType: 'user_rating',
+        },
       },
-      tags: ['feedback', 'user_rating', score === 1 ? 'positive' : 'negative'],
       start_time: Date.now(),
       end_time: Date.now(),
     })
 
-    console.log(`✅ 用户反馈已记录: requestId=${requestId}, score=${score}, comment=${comment ?? '(无)'}`)
+    console.log(`✅ 用户反馈已记录: requestId=${requestId}, score=${score}, hasComment=${Boolean(comment)}`)
 
     return new Response(
-      JSON.stringify({ success: true, runId: run.id }),
+      JSON.stringify({ success: true }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     )
   } catch (error) {
