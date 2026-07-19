@@ -1,8 +1,58 @@
 import { Injectable } from "@nestjs/common"
-import type { ChatMessage, RAGCitation, RetrievedDocument } from "@ai-arg/contracts"
+import { ConfigService } from "@nestjs/config"
+import type { ChatMessage, RAGCitation, RetrievedDocument, SearchRetrievalRequest } from "@ai-arg/contracts"
+import OpenAI from "openai"
+import { PrismaService } from "../database/prisma.service"
+
+type RetrievalRow = RetrievedDocument & { similarity: number }
 
 @Injectable()
 export class RetrievalService {
+  private readonly openai: OpenAI
+
+  constructor(
+    private readonly prisma: PrismaService,
+    config: ConfigService,
+  ) {
+    this.openai = new OpenAI({
+      apiKey: config.get<string>("SILICONFLOW_API_KEY") ?? config.get<string>("OPENROUTER_API_KEY"),
+      baseURL: config.get<string>("LLM_BASE_URL") ?? config.get<string>("OPENROUTER_BASE_URL") ?? "https://api.siliconflow.cn/v1",
+    })
+  }
+
+  async vectorSearch(userId: string, request: SearchRetrievalRequest): Promise<RetrievedDocument[]> {
+    const response = await this.openai.embeddings.create({
+      model: process.env.EMBEDDING_MODEL ?? "Qwen/Qwen3-Embedding-8B",
+      input: request.query,
+      dimensions: 1536,
+    })
+    const embedding = response.data[0]?.embedding
+    if (!embedding) return []
+
+    const recallCount = request.topK * 3
+    const embeddingVector = `[${embedding.join(",")}]`
+    const rows = await this.prisma.$queryRaw<RetrievalRow[]>`
+      SELECT dc.id, dc."documentId", dc.title, dc.content, d."contentType",
+             dc.heading, dc."startOffset", dc."endOffset", dc."sourceVersion",
+             d."sourceName", d."sourceUri",
+             1 - (dc.embedding <=> ${embeddingVector}::vector) AS similarity
+      FROM "DocumentChunk" dc
+      JOIN "Document" d ON d.id = dc."documentId"
+      WHERE dc.embedding IS NOT NULL
+        AND d."userId" = ${userId}
+        AND d."status" = 'READY'::"DocumentStatus"
+        AND (${request.category ?? null}::text IS NULL OR d.category = ${request.category ?? null})
+        AND (${request.contentType ?? null}::text IS NULL OR d."contentType" = ${request.contentType ?? null})
+        AND (${request.sourceType ?? null}::text IS NULL OR d."sourceType" = ${request.sourceType ?? null})
+      ORDER BY dc.embedding <=> ${embeddingVector}::vector
+      LIMIT ${recallCount}
+    `
+
+    return rows
+      .filter((row) => row.similarity >= request.minSimilarity)
+      .slice(0, request.topK)
+  }
+
   rewriteQuery(messages: ChatMessage[]): string {
     const userMessages = messages.filter((message) => message.role === "user" && message.content.trim())
     const current = userMessages.at(-1)?.content.trim() ?? ""

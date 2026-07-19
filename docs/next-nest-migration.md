@@ -117,14 +117,34 @@ Objective:
 
 - Add lifecycle-managed, read-only-capable Prisma access to NestJS against the existing root schema before moving database-backed retrieval.
 
+### 6. Tenant-Scoped Vector Retrieval
+
+- Branch: `codex/hybrid-retrieval`
+- Status: completed
+
+Changes:
+
+- Added protected `POST /api/retrieval/search` in NestJS.
+- Generates a query embedding through the configured OpenAI-compatible provider.
+- Uses pgvector against `DocumentChunk` and filters every query by the authenticated user ID and `READY` document status.
+- Returns retrieved documents, citations, and the existing evidence-safe RAG context.
+
+Verification:
+
+- Shared contracts and Nest API compile successfully.
+- The SQL path is read-only and applies tenant filtering before vector ordering.
+
+Rollback:
+
+- Revert this slice; Next.js remains the active retrieval path and does not call the Nest endpoint.
+
 ## Next Slice: Database-Backed Retrieval
 
 Objective: make NestJS produce the same user-scoped hybrid retrieval results as the existing Next.js implementation while Next continues to own LLM streaming and browser-facing SSE.
 
 Planned work:
 
-1. Add Nest-owned Prisma and embedding-provider access with read-only retrieval permissions.
-2. Move vector search, keyword search, RRF fusion, and reranking behind the Nest retrieval service.
+1. Add keyword search, RRF fusion, and reranking behind the Nest retrieval service.
 3. Have Next call Nest behind a disabled-by-default feature flag.
 4. Add sampled parity logging for legacy and Nest retrieval responses.
 5. Enable the flag only after retrieval, citation, latency, and error-rate checks meet the agreed threshold.

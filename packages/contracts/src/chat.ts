@@ -52,6 +52,15 @@ export const PrepareRetrievalContextRequestSchema = z.object({
   documents: z.array(RetrievedDocumentSchema).max(10),
 })
 
+export const SearchRetrievalRequestSchema = z.object({
+  query: z.string().trim().min(1).max(12_000),
+  topK: z.number().int().min(1).max(10).optional().default(5),
+  category: z.string().trim().max(100).optional(),
+  contentType: z.string().trim().max(100).optional(),
+  sourceType: z.string().trim().max(100).optional(),
+  minSimilarity: z.number().min(0).max(1).optional().default(0.35),
+})
+
 export const ChatStreamMetadataSchema = z.object({
   type: z.literal("metadata"),
   requestId: z.string().uuid(),
@@ -78,5 +87,6 @@ export type ChatRequest = z.infer<typeof ChatRequestSchema>
 export type RAGCitation = z.infer<typeof RAGCitationSchema>
 export type RetrievedDocument = z.infer<typeof RetrievedDocumentSchema>
 export type PrepareRetrievalContextRequest = z.infer<typeof PrepareRetrievalContextRequestSchema>
+export type SearchRetrievalRequest = z.infer<typeof SearchRetrievalRequestSchema>
 export type ChatStreamMetadata = z.infer<typeof ChatStreamMetadataSchema>
 export type SaveChatMessage = z.infer<typeof SaveChatMessageSchema>
