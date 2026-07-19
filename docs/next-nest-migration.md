@@ -162,6 +162,17 @@ Changes:
 - Replaced full-query keyword recall with the same Jieba dictionary and TF-IDF primitives used by the legacy Next.js path.
 - Retained the full query as a fallback when no usable keyword is extracted.
 
+### 9. Dedicated Reranking
+
+- Branch: `codex/dedicated-reranker`
+- Status: completed
+
+Changes:
+
+- Added the configured provider's dedicated `/rerank` call after RRF fusion.
+- Uses the legacy model default and eight-second timeout.
+- Retains deterministic fused ordering for missing credentials, provider failures, invalid responses, and timeouts.
+
 ## Next Slice: Database-Backed Retrieval
 
 Objective: make NestJS produce the same user-scoped hybrid retrieval results as the existing Next.js implementation while Next continues to own LLM streaming and browser-facing SSE.

@@ -80,10 +80,48 @@ export class RetrievalService {
       }
     }
 
-    return [...scores.values()]
+    const candidates = [...scores.values()]
       .sort((left, right) => right.score - left.score)
       .map(({ document }) => document)
-      .slice(0, request.topK)
+
+    return this.rerank(request.query, candidates, request.topK)
+  }
+
+  private async rerank(query: string, candidates: RetrievedDocument[], topK: number): Promise<RetrievedDocument[]> {
+    if (candidates.length <= topK) return candidates.slice(0, topK)
+
+    const baseURL = process.env.LLM_BASE_URL ?? process.env.OPENROUTER_BASE_URL ?? "https://api.siliconflow.cn/v1"
+    const apiKey = process.env.SILICONFLOW_API_KEY ?? process.env.OPENROUTER_API_KEY
+    if (!apiKey) return candidates.slice(0, topK)
+
+    try {
+      const response = await fetch(`${baseURL.replace(/\/$/, "")}/rerank`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: process.env.RERANKER_MODEL ?? "BAAI/bge-reranker-v2-m3",
+          query,
+          documents: candidates.map((candidate) => `${candidate.title}\n${candidate.content}`),
+          top_n: topK,
+          return_documents: false,
+        }),
+        signal: AbortSignal.timeout(8_000),
+      })
+      if (!response.ok) return candidates.slice(0, topK)
+
+      const payload = await response.json() as { results?: Array<{ index: number; relevance_score: number }> }
+      if (!payload.results?.length) return candidates.slice(0, topK)
+      return payload.results
+        .filter((result) => candidates[result.index])
+        .sort((left, right) => right.relevance_score - left.relevance_score)
+        .map((result) => ({ ...candidates[result.index], similarity: result.relevance_score }))
+        .slice(0, topK)
+    } catch {
+      return candidates.slice(0, topK)
+    }
   }
 
   private async keywordSearch(userId: string, request: SearchRetrievalRequest): Promise<RetrievedDocument[]> {
