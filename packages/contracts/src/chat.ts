@@ -32,6 +32,26 @@ export const RAGCitationSchema = z.object({
   score: z.number().min(0).max(1),
 })
 
+export const RetrievedDocumentSchema = z.object({
+  id: z.string().min(1),
+  documentId: z.string().min(1),
+  title: z.string().min(1),
+  content: z.string().min(1),
+  contentType: z.string().min(1),
+  heading: z.string().optional(),
+  sourceName: z.string().optional(),
+  sourceUri: z.string().optional(),
+  sourceVersion: z.number().int().positive(),
+  startOffset: z.number().int().nonnegative().optional(),
+  endOffset: z.number().int().nonnegative().optional(),
+  similarity: z.number().min(0).max(1),
+})
+
+export const PrepareRetrievalContextRequestSchema = z.object({
+  messages: z.array(ChatMessageSchema).min(1).max(30),
+  documents: z.array(RetrievedDocumentSchema).max(10),
+})
+
 export const ChatStreamMetadataSchema = z.object({
   type: z.literal("metadata"),
   requestId: z.string().uuid(),
@@ -56,5 +76,7 @@ export const SaveChatMessageSchema = z.object({
 export type ChatMessage = z.infer<typeof ChatMessageSchema>
 export type ChatRequest = z.infer<typeof ChatRequestSchema>
 export type RAGCitation = z.infer<typeof RAGCitationSchema>
+export type RetrievedDocument = z.infer<typeof RetrievedDocumentSchema>
+export type PrepareRetrievalContextRequest = z.infer<typeof PrepareRetrievalContextRequestSchema>
 export type ChatStreamMetadata = z.infer<typeof ChatStreamMetadataSchema>
 export type SaveChatMessage = z.infer<typeof SaveChatMessageSchema>

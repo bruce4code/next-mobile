@@ -87,14 +87,35 @@ Rollback:
 
 - Revert commit `8a146f8`; contracts are not yet consumed by runtime endpoints.
 
-## Next Slice: Retrieval Extraction
+### 4. Retrieval Context Preparation
 
-Objective: make NestJS produce the same retrieval results, citations, and RAG context as the existing Next.js implementation while Next continues to own LLM streaming and browser-facing SSE.
+- Branch: `codex/retrieval-service`
+- Status: completed
+
+Changes:
+
+- Added a protected Nest retrieval module that owns follow-up query rewriting, citation mapping, and prompt-safe RAG context construction.
+- Added shared request and retrieved-document contracts for the internal context-preparation boundary.
+- Kept the existing Next.js database-backed hybrid search and browser-facing SSE flow unchanged.
+
+Verification:
+
+- Contracts and Nest API compilation passed.
+- Follow-up query rewriting, citation IDs, and prompt-injection safety text match the existing retrieval trust behavior.
+- `/api/retrieval/prepare-context` returns `401` without a bearer token.
+
+Rollback:
+
+- Revert this slice before making the Nest endpoint available to Next.js; no runtime caller depends on it yet.
+
+## Next Slice: Database-Backed Retrieval
+
+Objective: make NestJS produce the same user-scoped hybrid retrieval results as the existing Next.js implementation while Next continues to own LLM streaming and browser-facing SSE.
 
 Planned work:
 
-1. Add a Nest retrieval module with user-scoped access only.
-2. Move query rewriting, hybrid search, reranking, and citation mapping behind the Nest service boundary.
+1. Add Nest-owned Prisma and embedding-provider access with read-only retrieval permissions.
+2. Move vector search, keyword search, RRF fusion, and reranking behind the Nest retrieval service.
 3. Have Next call Nest behind a disabled-by-default feature flag.
 4. Add sampled parity logging for legacy and Nest retrieval responses.
 5. Enable the flag only after retrieval, citation, latency, and error-rate checks meet the agreed threshold.

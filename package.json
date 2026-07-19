@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "pnpm --filter @ai-arg/web dev",
     "dev:web": "pnpm --filter @ai-arg/web dev",
-    "dev:api": "pnpm --filter @ai-arg/api start:dev",
+    "dev:api": "pnpm --filter @ai-arg/contracts build && pnpm --filter @ai-arg/api start:dev",
     "build": "pnpm --filter @ai-arg/contracts build && pnpm --filter @ai-arg/config build && pnpm --filter @ai-arg/api build && pnpm --filter @ai-arg/web build",
     "build:web": "pnpm --filter @ai-arg/web build",
     "build:api": "pnpm --filter @ai-arg/api build",

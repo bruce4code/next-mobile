@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common"
 import { ConfigModule } from "@nestjs/config"
 import { AuthModule } from "./auth/auth.module"
 import { HealthController } from "./health.controller"
+import { RetrievalModule } from "./retrieval/retrieval.module"
 
 @Module({
   imports: [
@@ -10,6 +11,7 @@ import { HealthController } from "./health.controller"
       isGlobal: true,
     }),
     AuthModule,
+    RetrievalModule,
   ],
   controllers: [HealthController],
 })
