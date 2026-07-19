@@ -37,7 +37,7 @@ export class RetrievalController {
       throw new BadRequestException({ error: "请求参数校验失败", details: error })
     }
 
-    const documents = await this.retrieval.vectorSearch(user.id, request)
+    const documents = await this.retrieval.hybridSearch(user.id, request)
     return {
       documents,
       citations: this.retrieval.toCitations(documents),

@@ -53,6 +53,54 @@ export class RetrievalService {
       .slice(0, request.topK)
   }
 
+  async hybridSearch(userId: string, request: SearchRetrievalRequest): Promise<RetrievedDocument[]> {
+    const recallRequest = { ...request, topK: Math.min(request.topK * 3, 10) }
+    const [vectors, keywords] = await Promise.allSettled([
+      this.vectorSearch(userId, recallRequest),
+      this.keywordSearch(userId, recallRequest),
+    ])
+    const vectorResults = vectors.status === "fulfilled" ? vectors.value : []
+    const keywordResults = keywords.status === "fulfilled" ? keywords.value : []
+    const scores = new Map<string, { document: RetrievedDocument; score: number }>()
+
+    for (const [index, document] of vectorResults.entries()) {
+      scores.set(document.id, { document, score: 1 / (60 + index + 1) })
+    }
+    for (const [index, document] of keywordResults.entries()) {
+      const existing = scores.get(document.id)
+      if (existing) {
+        existing.score += 1 / (60 + index + 1)
+      } else {
+        scores.set(document.id, { document, score: 1 / (60 + index + 1) })
+      }
+    }
+
+    return [...scores.values()]
+      .sort((left, right) => right.score - left.score)
+      .map(({ document }) => document)
+      .slice(0, request.topK)
+  }
+
+  private async keywordSearch(userId: string, request: SearchRetrievalRequest): Promise<RetrievedDocument[]> {
+    const pattern = `%${request.query}%`
+    const rows = await this.prisma.$queryRaw<RetrievalRow[]>`
+      SELECT dc.id, dc."documentId", dc.title, dc.content, d."contentType",
+             dc.heading, dc."startOffset", dc."endOffset", dc."sourceVersion",
+             d."sourceName", d."sourceUri", 0.55 AS similarity
+      FROM "DocumentChunk" dc
+      JOIN "Document" d ON d.id = dc."documentId"
+      WHERE (dc.title ILIKE ${pattern} OR dc.content ILIKE ${pattern})
+        AND d."userId" = ${userId}
+        AND d."status" = 'READY'::"DocumentStatus"
+        AND (${request.category ?? null}::text IS NULL OR d.category = ${request.category ?? null})
+        AND (${request.contentType ?? null}::text IS NULL OR d."contentType" = ${request.contentType ?? null})
+        AND (${request.sourceType ?? null}::text IS NULL OR d."sourceType" = ${request.sourceType ?? null})
+      ORDER BY dc."createdAt" DESC
+      LIMIT ${request.topK}
+    `
+    return rows
+  }
+
   rewriteQuery(messages: ChatMessage[]): string {
     const userMessages = messages.filter((message) => message.role === "user" && message.content.trim())
     const current = userMessages.at(-1)?.content.trim() ?? ""

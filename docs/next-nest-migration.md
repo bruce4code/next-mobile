@@ -138,6 +138,20 @@ Rollback:
 
 - Revert this slice; Next.js remains the active retrieval path and does not call the Nest endpoint.
 
+### 7. Keyword Recall and RRF Fusion
+
+- Branch: `codex/keyword-rrf-retrieval`
+- Status: completed
+
+Changes:
+
+- Added a read-only keyword recall query with the same tenant, status, and metadata filters as vector retrieval.
+- Added parallel vector and keyword recall with reciprocal-rank fusion using `RRF_K = 60`.
+
+Known parity gap:
+
+- Keyword recall currently uses the complete query as the `ILIKE` term. The legacy Jieba/TF-IDF keyword extraction and dedicated reranker remain to be extracted before enabling the Nest path in Next.js.
+
 ## Next Slice: Database-Backed Retrieval
 
 Objective: make NestJS produce the same user-scoped hybrid retrieval results as the existing Next.js implementation while Next continues to own LLM streaming and browser-facing SSE.
