@@ -108,6 +108,15 @@ Rollback:
 
 - Revert this slice before making the Nest endpoint available to Next.js; no runtime caller depends on it yet.
 
+### 5. Nest Database Access
+
+- Branch: `codex/database-retrieval`
+- Status: in progress
+
+Objective:
+
+- Add lifecycle-managed, read-only-capable Prisma access to NestJS against the existing root schema before moving database-backed retrieval.
+
 ## Next Slice: Database-Backed Retrieval
 
 Objective: make NestJS produce the same user-scoped hybrid retrieval results as the existing Next.js implementation while Next continues to own LLM streaming and browser-facing SSE.

@@ -18,6 +18,7 @@
     "prisma:generate": "pnpm --filter @ai-arg/web exec prisma generate --schema ../../prisma/schema.prisma"
   },
   "devDependencies": {
+    "@prisma/client": "6.19.3",
     "prisma": "^6.8.2"
   }
 }

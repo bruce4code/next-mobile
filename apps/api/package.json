@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ai-arg/contracts": "workspace:*",
+    "@prisma/client": "^6.8.2",
     "@nestjs/common": "^11.1.6",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.1.6",
@@ -24,6 +25,6 @@
     "@nestjs/schematics": "^11.0.7",
     "@nestjs/testing": "^11.1.6",
     "@types/node": "^22.15.30",
-    "typescript": "^5.8.3"
+    "typescript": "^5.9.3"
   }
 }
