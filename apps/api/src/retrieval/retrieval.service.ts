@@ -2,9 +2,14 @@ import { Injectable } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
 import type { ChatMessage, RAGCitation, RetrievedDocument, SearchRetrievalRequest } from "@ai-arg/contracts"
 import OpenAI from "openai"
+import { Jieba, TfIdf } from "@node-rs/jieba"
+import { dict, idf } from "@node-rs/jieba/dict"
 import { PrismaService } from "../database/prisma.service"
 
 type RetrievalRow = RetrievedDocument & { similarity: number }
+const jieba = Jieba.withDict(dict)
+const tfidf = TfIdf.withDict(idf)
+const STOP_WORDS = new Set(["的", "了", "在", "是", "我", "你", "什么", "怎么", "如何", "吗", "呢", "和", "与", "或", "查", "一下"])
 
 @Injectable()
 export class RetrievalService {
@@ -82,14 +87,17 @@ export class RetrievalService {
   }
 
   private async keywordSearch(userId: string, request: SearchRetrievalRequest): Promise<RetrievedDocument[]> {
-    const pattern = `%${request.query}%`
+    const keywords = tfidf.extractKeywords(jieba, request.query, 5)
+      .map((keyword) => keyword.keyword)
+      .filter((keyword) => keyword.length > 0 && !STOP_WORDS.has(keyword) && !/^\d+$/.test(keyword))
+    const patterns = (keywords.length > 0 ? keywords : [request.query]).map((keyword) => `%${keyword}%`)
     const rows = await this.prisma.$queryRaw<RetrievalRow[]>`
       SELECT dc.id, dc."documentId", dc.title, dc.content, d."contentType",
              dc.heading, dc."startOffset", dc."endOffset", dc."sourceVersion",
              d."sourceName", d."sourceUri", 0.55 AS similarity
       FROM "DocumentChunk" dc
       JOIN "Document" d ON d.id = dc."documentId"
-      WHERE (dc.title ILIKE ${pattern} OR dc.content ILIKE ${pattern})
+      WHERE (dc.title ILIKE ANY(${patterns}) OR dc.content ILIKE ANY(${patterns}))
         AND d."userId" = ${userId}
         AND d."status" = 'READY'::"DocumentStatus"
         AND (${request.category ?? null}::text IS NULL OR d.category = ${request.category ?? null})

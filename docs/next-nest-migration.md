@@ -150,7 +150,17 @@ Changes:
 
 Known parity gap:
 
-- Keyword recall currently uses the complete query as the `ILIKE` term. The legacy Jieba/TF-IDF keyword extraction and dedicated reranker remain to be extracted before enabling the Nest path in Next.js.
+- Dedicated reranking remains to be extracted before enabling the Nest path in Next.js.
+
+### 8. Jieba Keyword Extraction
+
+- Branch: `codex/jieba-keyword-retrieval`
+- Status: completed
+
+Changes:
+
+- Replaced full-query keyword recall with the same Jieba dictionary and TF-IDF primitives used by the legacy Next.js path.
+- Retained the full query as a fallback when no usable keyword is extracted.
 
 ## Next Slice: Database-Backed Retrieval
 
