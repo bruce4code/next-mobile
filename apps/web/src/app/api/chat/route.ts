@@ -3,13 +3,14 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import { wrapOpenAI } from 'langsmith/wrappers/openai'
 import { getAccessToken, getUser } from '@/app/auth/server'
 import {
-  searchSimilarDocuments,
+  searchRagRetrievalDecision,
   buildRAGContext,
   extractKeywords,
   rewriteRetrievalQuery,
   toRAGCitations,
   type RAGCitation,
 } from '@/lib/rag'
+import { getRagAbstentionMode, RAG_ABSTENTION_MESSAGE, type RagDecision } from '@/lib/rag-abstention'
 import {
   LLM_CONFIG,
   DEFAULT_CHAT_MODELS,
@@ -65,6 +66,37 @@ type SSETransformOptions = {
   attemptedModel: string
   requestId: string
   citations: RAGCitation[]
+}
+
+function createAbstentionResponse(requestId: string, reason: string) {
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+        type: 'metadata',
+        requestId,
+        model: 'rag-abstention',
+        citations: [],
+        ragDecision: 'ABSTAIN',
+        ragAbstainReason: reason,
+      })}\n\n`))
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+        choices: [{ delta: { content: RAG_ABSTENTION_MESSAGE } }],
+        model: 'rag-abstention',
+      })}\n\n`))
+      controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+      controller.close()
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'X-Request-Id': requestId,
+    },
+  })
 }
 
 interface Message {
@@ -198,8 +230,10 @@ export async function POST(req: Request) {
   // LangSmith metadata：用于在 Dashboard 按用户/请求筛选 trace
   const userId = user.id
   const requestId = crypto.randomUUID()
+  const abstentionMode = getRagAbstentionMode()
   let similarDocsCount = 0
   let citations: RAGCitation[] = []
+  let ragDecision: RagDecision | null = null
   console.log('🔍 Chat API 被调用')
   console.log('  - ENABLE_RAG:', ENABLE_RAG)
   console.log('  - useRAG:', useRAG)
@@ -225,12 +259,14 @@ export async function POST(req: Request) {
         console.log('  - 提取到的关键词数量:', keywords.length)
         if (keywords.length > 0) {
           try {
-          const similarDocs = await searchSimilarDocuments(
+          const retrieval = await searchRagRetrievalDecision(
             retrievalQuery,
             { userId, topK: 5, mode: 'hybrid', reranker: { topK: 5 } }
           )
+          const similarDocs = retrieval.documents
+          ragDecision = retrieval.decision
 
-          if (similarDocs.length > 0) {
+          if (retrieval.decision.outcome === 'ANSWER') {
             similarDocsCount = similarDocs.length
             citations = toRAGCitations(similarDocs)
             if (ENABLE_NEST_RETRIEVAL_SHADOW) {
@@ -262,10 +298,16 @@ export async function POST(req: Request) {
             
             console.log('📚 RAG 上下文已添加到对话中（位置：用户消息之前）')
           } else {
-            console.log('❌ 没有找到相关文档，使用普通对话模式')
+            console.info('RAG abstention decision', {
+              requestId,
+              backend: 'legacy',
+              reason: retrieval.decision.reason,
+              mode: abstentionMode,
+            })
           }
         } catch (searchError) {
           console.warn('⚠️ RAG 搜索出错（可能是网络问题），跳过 RAG:', searchError)
+          ragDecision = { outcome: 'ABSTAIN', reason: 'RERANK_UNAVAILABLE' }
         }
         }
       }
@@ -274,6 +316,10 @@ export async function POST(req: Request) {
     }
   } else {
     console.log('❌ RAG 未启用，使用普通对话模式')
+  }
+
+  if (ragDecision?.outcome === 'ABSTAIN' && abstentionMode === 'enforce') {
+    return createAbstentionResponse(requestId, ragDecision.reason)
   }
 
   const modelsToTry = resolveModelCandidates()

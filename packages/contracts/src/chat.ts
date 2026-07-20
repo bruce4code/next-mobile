@@ -61,6 +61,29 @@ export const SearchRetrievalRequestSchema = z.object({
   minSimilarity: z.number().min(0).max(1).optional().default(0.35),
 })
 
+export const RetrievalAbstainReasonSchema = z.enum([
+  "NO_CANDIDATES",
+  "RERANK_UNAVAILABLE",
+  "LOW_TOP_SCORE",
+  "AMBIGUOUS_TOP_RESULT",
+])
+
+export const RetrievalDecisionSchema = z.discriminatedUnion("outcome", [
+  z.object({
+    outcome: z.literal("ANSWER"),
+    documents: z.array(RetrievedDocumentSchema).min(1).max(10),
+    citations: z.array(RAGCitationSchema).min(1).max(10),
+    context: z.string().min(1),
+  }),
+  z.object({
+    outcome: z.literal("ABSTAIN"),
+    reason: RetrievalAbstainReasonSchema,
+    documents: z.array(RetrievedDocumentSchema).length(0),
+    citations: z.array(RAGCitationSchema).length(0),
+    context: z.literal(""),
+  }),
+])
+
 export const ChatStreamMetadataSchema = z.object({
   type: z.literal("metadata"),
   requestId: z.string().uuid(),
@@ -88,5 +111,7 @@ export type RAGCitation = z.infer<typeof RAGCitationSchema>
 export type RetrievedDocument = z.infer<typeof RetrievedDocumentSchema>
 export type PrepareRetrievalContextRequest = z.infer<typeof PrepareRetrievalContextRequestSchema>
 export type SearchRetrievalRequest = z.infer<typeof SearchRetrievalRequestSchema>
+export type RetrievalAbstainReason = z.infer<typeof RetrievalAbstainReasonSchema>
+export type RetrievalDecision = z.infer<typeof RetrievalDecisionSchema>
 export type ChatStreamMetadata = z.infer<typeof ChatStreamMetadataSchema>
 export type SaveChatMessage = z.infer<typeof SaveChatMessageSchema>

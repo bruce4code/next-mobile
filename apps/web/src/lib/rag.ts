@@ -1,6 +1,7 @@
 import prisma from './prisma'
 import { generateEmbedding } from './embedding'
-import { rerankResults, type RerankerOptions } from './reranker'
+import { rerankResultsWithStatus, type RerankerOptions } from './reranker'
+import { evaluateRagDecision, type RagDecision } from './rag-abstention'
 import { logger } from './logger'
 import { Jieba, TfIdf } from '@node-rs/jieba'
 import { dict, idf } from '@node-rs/jieba/dict'
@@ -40,6 +41,12 @@ export interface SearchOptions {
   /** 搜索模式，默认 hybrid */
   mode?: SearchMode
   reranker?: boolean | RerankerOptions
+  onRerankerResult?: (result: { candidateCount: number; rerankerApplied: boolean; scores: number[] }) => void
+}
+
+export interface RagRetrievalDecision {
+  decision: RagDecision
+  documents: DocumentResult[]
 }
 
 export interface DocumentResult {
@@ -291,11 +298,14 @@ export async function searchSimilarDocuments(
     minEvidenceScore = DEFAULT_MIN_EVIDENCE_SCORE,
     mode = 'hybrid',
     reranker,
+    onRerankerResult,
   } = options
 
   // 纯向量模式（老路径，保持兼容）
   if (mode === 'vector') {
-    return vectorSearch(query, { userId, topK, category, contentType, sourceType, minSimilarity })
+    const documents = await vectorSearch(query, { userId, topK, category, contentType, sourceType, minSimilarity })
+    onRerankerResult?.({ candidateCount: documents.length, rerankerApplied: false, scores: documents.map((document) => document.similarity) })
+    return documents
   }
 
   // hybrid 模式
@@ -353,11 +363,14 @@ export async function searchSimilarDocuments(
           LIMIT ${topK}
         `
       }
-      return fallback
+      const documents = fallback
         .map((row) => toDocumentResult(row, 0.55))
         .filter((result) => result.similarity >= minEvidenceScore)
+      onRerankerResult?.({ candidateCount: documents.length, rerankerApplied: false, scores: documents.map((document) => document.similarity) })
+      return documents
     } catch (fallbackErr) {
       logger.error('RAG.HybridSearch.FallbackError', { error: String(fallbackErr) })
+      onRerankerResult?.({ candidateCount: 0, rerankerApplied: false, scores: [] })
       return []
     }
   }
@@ -412,14 +425,16 @@ export async function searchSimilarDocuments(
   let final: RankedDocumentResult[] = merged.slice(0, HYBRID_TOP_K)
 
   // Reranker
-  if (reranker && final.length > topK) {
+  let rerankerApplied = false
+  if (reranker) {
     logger.info('RAG.Reranker.Enabled', { candidates: final.length, topK })
-    const reranked = await rerankResults(query, final, {
+    const reranked = await rerankResultsWithStatus(query, final, {
       topK,
       ...(typeof reranker === 'object' ? reranker : {}),
     })
-    if (reranked.length > 0) {
-      final = reranked
+    rerankerApplied = reranked.applied
+    if (reranked.documents.length > 0) {
+      final = reranked.documents
     } else {
       logger.warn('RAG.Reranker.EmptyResult', '重排序返回空，使用原始顺序')
     }
@@ -428,6 +443,11 @@ export async function searchSimilarDocuments(
   }
 
   final = final.filter((result) => result.similarity >= minEvidenceScore)
+  onRerankerResult?.({
+    candidateCount: final.length,
+    rerankerApplied,
+    scores: final.map((result) => result.similarity),
+  })
 
   // 最终结果摘要
   const resultSummary = final.map((r, i) => ({
@@ -446,6 +466,25 @@ export async function searchSimilarDocuments(
   })
 
   return final
+}
+
+export async function searchRagRetrievalDecision(
+  query: string,
+  options: SearchOptions,
+): Promise<RagRetrievalDecision> {
+  let confidence = { candidateCount: 0, rerankerApplied: false, scores: [] as number[] }
+  const documents = await searchSimilarDocuments(query, {
+    ...options,
+    onRerankerResult: (result) => {
+      confidence = result
+      options.onRerankerResult?.(result)
+    },
+  })
+
+  return {
+    decision: evaluateRagDecision(confidence),
+    documents,
+  }
 }
 
 // ─── 纯向量搜索（保持原有逻辑） ──────────────────────────────
