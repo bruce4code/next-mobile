@@ -1,7 +1,7 @@
 import OpenAI from "openai"
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { wrapOpenAI } from 'langsmith/wrappers/openai'
-import { getUser } from '@/app/auth/server'
+import { getAccessToken, getUser } from '@/app/auth/server'
 import {
   searchSimilarDocuments,
   buildRAGContext,
@@ -25,6 +25,41 @@ const openai = wrapOpenAI(new OpenAI({
 const DEFAULT_MODEL_CANDIDATES = DEFAULT_CHAT_MODELS
 
 const ENABLE_RAG = true
+const ENABLE_NEST_RETRIEVAL_SHADOW = process.env.RAG_SHADOW_NEST === 'true'
+
+async function shadowNestRetrieval(query: string, userId: string, legacyDocumentIds: string[]) {
+  const accessToken = await getAccessToken()
+  const baseURL = process.env.NEST_API_URL
+  if (!accessToken || !baseURL) return
+
+  try {
+    const response = await fetch(`${baseURL.replace(/\/$/, '')}/api/retrieval/search`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query, topK: 5 }),
+      cache: 'no-store',
+    })
+    if (!response.ok) {
+      console.warn('Nest retrieval shadow failed', { userId, status: response.status })
+      return
+    }
+
+    const payload = await response.json() as { documents?: Array<{ documentId: string }> }
+    const nestDocumentIds = payload.documents?.map((document) => document.documentId) ?? []
+    const overlap = legacyDocumentIds.filter((id) => nestDocumentIds.includes(id)).length
+    console.info('Nest retrieval shadow comparison', {
+      userId,
+      legacyCount: legacyDocumentIds.length,
+      nestCount: nestDocumentIds.length,
+      overlap,
+    })
+  } catch (error) {
+    console.warn('Nest retrieval shadow errored', { userId, error: String(error) })
+  }
+}
 
 type SSETransformOptions = {
   attemptedModel: string
@@ -198,6 +233,9 @@ export async function POST(req: Request) {
           if (similarDocs.length > 0) {
             similarDocsCount = similarDocs.length
             citations = toRAGCitations(similarDocs)
+            if (ENABLE_NEST_RETRIEVAL_SHADOW) {
+              void shadowNestRetrieval(retrievalQuery, userId, similarDocs.map((document) => document.documentId))
+            }
             console.log(`✅ 找到 ${similarDocs.length} 个相关文档:`)
             similarDocs.forEach((doc, index) => {
               const similarity = doc.similarity ? ` (相似度: ${(doc.similarity * 100).toFixed(1)}%)` : ''

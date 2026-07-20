@@ -81,7 +81,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith(`/${currentLocale}/chat`) ||
     pathname.startsWith(`/${currentLocale}/knowledge`) ||
     pathname.startsWith(`/${currentLocale}/profile`) ||
-    pathname.startsWith(`/${currentLocale}/settings`);
+    pathname.startsWith(`/${currentLocale}/settings`) ||
+    pathname.startsWith(`/${currentLocale}/admin`);
 
   // 只对受保护路由做登录拦截，其他不存在路径直接走 not-found
   if (!user && isProtectedPath) {
@@ -105,4 +106,3 @@ export const config = {
     '/((?!api|_next|favicon.ico|locales|auth|.*\\.(?:svg|png|jpg|jpeg|gif|webp|json)$).*)',
   ],
 };
-

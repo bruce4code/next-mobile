@@ -16,8 +16,14 @@ export default function I18nProviderWrapper({ children, locale, initialResources
   const i18nRef = useRef<I18nType | null>(null);
 
   if (!i18nRef.current) {
-    console.log('I18nProviderWrapper: Initializing i18n instance for locale:', locale);
-    console.log('I18nProviderWrapper: initialResources (string):', initialResources);
+    let resources: Record<string, unknown> = {};
+    if (initialResources) {
+      try {
+        resources = { [locale]: JSON.parse(initialResources) };
+      } catch (error) {
+        console.error('I18nProviderWrapper: Error parsing initialResources:', error);
+      }
+    }
 
     i18nRef.current = createInstance();
     i18nRef.current
@@ -32,27 +38,9 @@ export default function I18nProviderWrapper({ children, locale, initialResources
         interpolation: {
           escapeValue: false,
         },
+        resources,
+        initImmediate: false,
       });
-
-    // Manually add the initial resources for hydration
-    if (initialResources) {
-      try {
-        const parsedResources = JSON.parse(initialResources);
-        console.log('I18nProviderWrapper: parsedResources:', parsedResources);
-        Object.keys(parsedResources).forEach(ns => {
-          if (!i18nRef.current?.hasResourceBundle(locale, ns)) {
-            console.log(`I18nProviderWrapper: Adding resource bundle for locale '${locale}', namespace '${ns}'`);
-            i18nRef.current?.addResourceBundle(locale, ns, parsedResources[ns]);
-          } else {
-            console.log(`I18nProviderWrapper: Resource bundle for locale '${locale}', namespace '${ns}' already exists.`);
-          }
-        });
-      } catch (error) {
-        console.error('I18nProviderWrapper: Error parsing initialResources:', error);
-      }
-    } else {
-      console.log('I18nProviderWrapper: No initialResources provided.');
-    }
   }
 
   useEffect(() => {

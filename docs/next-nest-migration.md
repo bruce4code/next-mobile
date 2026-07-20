@@ -173,6 +173,17 @@ Changes:
 - Uses the legacy model default and eight-second timeout.
 - Retains deterministic fused ordering for missing credentials, provider failures, invalid responses, and timeouts.
 
+### 10. Shadow Comparison Operations
+
+- Branch: `codex/retrieval-shadow-mode`
+- Status: completed
+
+Changes:
+
+- Added disabled-by-default Next-to-Nest retrieval shadow requests with authenticated token forwarding and document-overlap logging.
+- Added the admin-only `/{locale}/admin/rag-shadow` operational status page, gated by `ADMIN_EMAILS`.
+- Aligned web Prisma dependencies and initialized i18n from the SSR resource snapshot to prevent runtime and hydration failures.
+
 ## Next Slice: Database-Backed Retrieval
 
 Objective: make NestJS produce the same user-scoped hybrid retrieval results as the existing Next.js implementation while Next continues to own LLM streaming and browser-facing SSE.
