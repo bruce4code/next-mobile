@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ai-arg/contracts": "workspace:*",
+    "@langchain/textsplitters": "^1.0.1",
     "@node-rs/jieba": "^2.0.1",
     "@prisma/client": "^6.8.2",
     "@nestjs/common": "^11.1.6",

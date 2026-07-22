@@ -20,6 +20,9 @@ importers:
       '@ai-arg/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@langchain/textsplitters':
+        specifier: ^1.0.1
+        version: 1.0.1(@langchain/core@1.1.48(@opentelemetry/api@1.9.0)(openai@4.103.0(ws@8.18.2)(zod@3.25.48))(ws@8.18.2))
       '@nestjs/common':
         specifier: ^11.1.6
         version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2)
