@@ -1,4 +1,5 @@
 import OpenAI from "openai"
+import { createHash } from "crypto"
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import { wrapOpenAI } from 'langsmith/wrappers/openai'
 import { getAccessToken, getUser } from '@/app/auth/server'
@@ -16,6 +17,8 @@ import {
   DEFAULT_CHAT_MODELS,
 } from '@/lib/llm-config'
 import { z } from 'zod'
+import prisma from '@/lib/prisma'
+import { isAdminEmail } from '@/lib/admin'
 
 // 初始化 LLM 客户端，并用 wrapOpenAI 启用 LangSmith 自动追踪
 const openai = wrapOpenAI(new OpenAI({
@@ -26,31 +29,70 @@ const openai = wrapOpenAI(new OpenAI({
 const DEFAULT_MODEL_CANDIDATES = DEFAULT_CHAT_MODELS
 
 const ENABLE_RAG = true
-const ENABLE_NEST_RETRIEVAL_SHADOW = process.env.RAG_SHADOW_NEST === 'true'
+type RagBackend = 'legacy' | 'shadow' | 'nest'
 
-async function shadowNestRetrieval(query: string, userId: string, legacyDocumentIds: string[]) {
+type NestRetrievalResponse = {
+  documents: Array<{ documentId: string }>
+  citations: RAGCitation[]
+  context: string
+}
+
+function resolveRagBackend(userId: string, email: string | null | undefined): RagBackend {
+  const configured = process.env.RAG_BACKEND
+  if (configured === 'legacy' || configured === 'shadow') return configured
+  if (configured === 'nest') {
+    const internalUsers = (process.env.RAG_NEST_INTERNAL_USER_IDS ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean)
+    if (isAdminEmail(email) || internalUsers.includes(userId)) return 'nest'
+    console.info('Nest retrieval is not enabled for this user; using legacy retrieval', { userId })
+    return 'legacy'
+  }
+  if (!configured && process.env.RAG_SHADOW_NEST === 'true') return 'shadow'
+  if (configured) console.warn('Unknown RAG_BACKEND; using legacy retrieval', { configured })
+  return 'legacy'
+}
+
+function nestTimeoutMs() {
+  const configured = Number(process.env.RAG_NEST_TIMEOUT_MS ?? 3500)
+  return Number.isFinite(configured) ? Math.min(Math.max(configured, 100), 8000) : 3500
+}
+
+async function requestNestRetrieval(query: string): Promise<NestRetrievalResponse> {
   const accessToken = await getAccessToken()
   const baseURL = process.env.NEST_API_URL
-  if (!accessToken || !baseURL) return
+  if (!accessToken || !baseURL) throw new Error('Nest endpoint or access token unavailable')
+
+  const response = await fetch(`${baseURL.replace(/\/$/, '')}/api/retrieval/search`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ query, topK: 5 }),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(nestTimeoutMs()),
+  })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+  const payload = await response.json() as Partial<NestRetrievalResponse>
+  if (!Array.isArray(payload.documents) || !Array.isArray(payload.citations) || typeof payload.context !== 'string') {
+    throw new Error('Nest retrieval returned an invalid response')
+  }
+
+  return payload as NestRetrievalResponse
+}
+
+async function shadowNestRetrieval(query: string, userId: string, legacyDocumentIds: string[]) {
+  const queryHash = createHash('sha256').update(query).digest('hex')
+  const startedAt = Date.now()
 
   try {
-    const response = await fetch(`${baseURL.replace(/\/$/, '')}/api/retrieval/search`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ query, topK: 5 }),
-      cache: 'no-store',
-    })
-    if (!response.ok) {
-      console.warn('Nest retrieval shadow failed', { userId, status: response.status })
-      return
-    }
-
-    const payload = await response.json() as { documents?: Array<{ documentId: string }> }
-    const nestDocumentIds = payload.documents?.map((document) => document.documentId) ?? []
+    const payload = await requestNestRetrieval(query)
+    const nestDocumentIds = payload.documents.map((document) => document.documentId)
     const overlap = legacyDocumentIds.filter((id) => nestDocumentIds.includes(id)).length
+    await prisma.ragShadowComparison.create({ data: { userId, queryHash, legacyDocumentIds, nestDocumentIds, legacyCount: legacyDocumentIds.length, nestCount: nestDocumentIds.length, overlap, latencyMs: Date.now() - startedAt, status: 'COMPLETED' } })
     console.info('Nest retrieval shadow comparison', {
       userId,
       legacyCount: legacyDocumentIds.length,
@@ -59,6 +101,9 @@ async function shadowNestRetrieval(query: string, userId: string, legacyDocument
     })
   } catch (error) {
     console.warn('Nest retrieval shadow errored', { userId, error: String(error) })
+    const errorMessage = String(error)
+    const status = errorMessage === 'Nest endpoint or access token unavailable' ? 'SKIPPED' : 'FAILED'
+    await prisma.ragShadowComparison.create({ data: { userId, queryHash, legacyDocumentIds, nestDocumentIds: [], legacyCount: legacyDocumentIds.length, nestCount: 0, overlap: 0, latencyMs: Date.now() - startedAt, status, error: errorMessage.slice(0, 500) } }).catch(() => undefined)
   }
 }
 
@@ -117,50 +162,44 @@ const ChatRequestSchema = z.object({
   }
 })
 
-function createSseTransform({ attemptedModel, requestId, citations }: SSETransformOptions) {
+function createSseStream(
+  stream: AsyncIterable<unknown>,
+  { attemptedModel, requestId, citations }: SSETransformOptions,
+) {
   const encoder = new TextEncoder()
-  const decoder = new TextDecoder()
-
-  return new TransformStream<Uint8Array, Uint8Array>({
-    async start(controller) {
-      // 发送初始 metadata 事件（含 requestId，供前端反馈使用）
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
       controller.enqueue(encoder.encode(`data: ${JSON.stringify({
         type: 'metadata',
         requestId,
         model: attemptedModel,
         citations,
       })}\n\n`))
-    },
-    async transform(chunk, controller) {
-      const text = decoder.decode(chunk)
 
-      for (const rawLine of text.split("\n")) {
-        const line = rawLine.trim()
-        if (!line) continue
-
-        // OpenRouter 会发送以 "data:" 开头的 SSE 帧
-        const payload = line.startsWith("data:") ? line.slice(5).trim() : line
-
-        if (payload === "[DONE]") {
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"))
-          continue
-        }
-
+      void (async () => {
         try {
-          const jsonData = JSON.parse(payload)
-          if (jsonData.choices?.[0]?.delta?.content) {
-            const enriched = {
-              ...jsonData,
+          for await (const rawChunk of stream) {
+            const chunk = rawChunk as { choices?: Array<{ delta?: { content?: unknown } }> }
+            const content = chunk.choices?.[0]?.delta?.content
+            if (typeof content !== 'string' || content.length === 0) continue
+
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+              ...chunk,
               model: attemptedModel,
-            }
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify(enriched)}\n\n`),
-            )
+            })}\n\n`))
           }
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
         } catch (error) {
-          console.error("解析 JSON 失败:", error, payload)
+          console.error('OpenRouter stream failed:', error)
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+            type: 'error',
+            error: '模型流式响应中断，请稍后重试',
+          })}\n\n`))
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
         }
-      }
+      })()
     },
   })
 }
@@ -230,6 +269,7 @@ export async function POST(req: Request) {
   // LangSmith metadata：用于在 Dashboard 按用户/请求筛选 trace
   const userId = user.id
   const requestId = crypto.randomUUID()
+  const ragBackend = resolveRagBackend(userId, user.email)
   const abstentionMode = getRagAbstentionMode()
   let similarDocsCount = 0
   let citations: RAGCitation[] = []
@@ -240,6 +280,7 @@ export async function POST(req: Request) {
   console.log('  - messages 数量:', messages.length)
   console.log('  - userId:', userId)
   console.log('  - requestId:', requestId)
+  console.log('  - RAG backend:', ragBackend)
 
   if (ENABLE_RAG && useRAG) {
     try {
@@ -259,56 +300,66 @@ export async function POST(req: Request) {
         console.log('  - 提取到的关键词数量:', keywords.length)
         if (keywords.length > 0) {
           try {
-          const retrieval = await searchRagRetrievalDecision(
-            retrievalQuery,
-            { userId, topK: 5, mode: 'hybrid', reranker: { topK: 5 } }
-          )
-          const similarDocs = retrieval.documents
-          ragDecision = retrieval.decision
+            let ragContext = ''
+            let nestResponseReceived = false
 
-          if (retrieval.decision.outcome === 'ANSWER') {
-            similarDocsCount = similarDocs.length
-            citations = toRAGCitations(similarDocs)
-            if (ENABLE_NEST_RETRIEVAL_SHADOW) {
-              void shadowNestRetrieval(retrievalQuery, userId, similarDocs.map((document) => document.documentId))
+            if (ragBackend === 'nest') {
+              try {
+                const nestResult = await requestNestRetrieval(retrievalQuery)
+                nestResponseReceived = true
+                similarDocsCount = nestResult.documents.length
+                citations = nestResult.citations
+                ragContext = nestResult.context
+                console.log(`✅ Nest 检索到 ${similarDocsCount} 个相关文档`)
+              } catch (nestError) {
+                console.warn('⚠️ Nest RAG 检索失败，回退到 legacy:', nestError)
+              }
             }
-            console.log(`✅ 找到 ${similarDocs.length} 个相关文档:`)
-            similarDocs.forEach((doc, index) => {
-              const similarity = doc.similarity ? ` (相似度: ${(doc.similarity * 100).toFixed(1)}%)` : ''
-              console.log(`  ${index + 1}. 已检索文档${similarity}`)
-            })
-            
-            const ragContext = buildRAGContext(similarDocs)
 
-            const lastUserIndex = messages.findLastIndex(
-              (msg) => msg.role === 'user'
-            )
-            if (lastUserIndex >= 0) {
-              enhancedMessages = [
-                ...messages.slice(0, lastUserIndex),
-                { role: 'system', content: ragContext },
-                ...messages.slice(lastUserIndex),
-              ]
+            if (ragBackend !== 'nest' || !nestResponseReceived) {
+              const retrieval = await searchRagRetrievalDecision(
+                retrievalQuery,
+                { userId, topK: 5, mode: 'hybrid', reranker: { topK: 5 } },
+              )
+              const similarDocs = retrieval.documents
+              ragDecision = retrieval.decision
+
+              if (ragBackend === 'shadow') {
+                void shadowNestRetrieval(retrievalQuery, userId, similarDocs.map((document) => document.documentId))
+              }
+
+              if (retrieval.decision.outcome === 'ANSWER') {
+                similarDocsCount = similarDocs.length
+                citations = toRAGCitations(similarDocs)
+                ragContext = buildRAGContext(similarDocs)
+                console.log(`✅ Legacy 检索到 ${similarDocs.length} 个相关文档`)
+              } else {
+                console.info('RAG abstention decision', {
+                  requestId,
+                  backend: 'legacy',
+                  reason: retrieval.decision.reason,
+                  mode: abstentionMode,
+                })
+              }
+            }
+
+            if (!ragContext && ragBackend === 'nest' && nestResponseReceived) {
+              ragDecision = { outcome: 'ABSTAIN', reason: 'NO_CANDIDATES' }
+            }
+
+            if (ragContext) {
+              const lastUserIndex = messages.findLastIndex((msg) => msg.role === 'user')
+              enhancedMessages = lastUserIndex >= 0
+                ? [...messages.slice(0, lastUserIndex), { role: 'system', content: ragContext }, ...messages.slice(lastUserIndex)]
+                : [{ role: 'system', content: ragContext }, ...messages]
+              console.log('📚 RAG 上下文已添加到对话中（位置：用户消息之前）')
             } else {
-              enhancedMessages = [
-                { role: 'system', content: ragContext },
-                ...messages,
-              ]
+              console.log('❌ 没有找到相关文档，使用普通对话模式')
             }
-            
-            console.log('📚 RAG 上下文已添加到对话中（位置：用户消息之前）')
-          } else {
-            console.info('RAG abstention decision', {
-              requestId,
-              backend: 'legacy',
-              reason: retrieval.decision.reason,
-              mode: abstentionMode,
-            })
+          } catch (searchError) {
+            console.warn('⚠️ RAG 搜索出错（可能是网络问题），跳过 RAG:', searchError)
+            ragDecision = { outcome: 'ABSTAIN', reason: 'RERANK_UNAVAILABLE' }
           }
-        } catch (searchError) {
-          console.warn('⚠️ RAG 搜索出错（可能是网络问题），跳过 RAG:', searchError)
-          ragDecision = { outcome: 'ABSTAIN', reason: 'RERANK_UNAVAILABLE' }
-        }
         }
       }
     } catch (ragError) {
@@ -348,9 +399,7 @@ export async function POST(req: Request) {
         },
       })
 
-      const responseStream = response
-        .toReadableStream()
-        .pipeThrough(createSseTransform({ attemptedModel: model, requestId, citations }))
+      const responseStream = createSseStream(response, { attemptedModel: model, requestId, citations })
 
       return new Response(responseStream, {
         headers: {

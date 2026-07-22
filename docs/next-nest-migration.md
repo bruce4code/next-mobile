@@ -184,16 +184,17 @@ Changes:
 - Added the admin-only `/{locale}/admin/rag-shadow` operational status page, gated by `ADMIN_EMAILS`.
 - Aligned web Prisma dependencies and initialized i18n from the SSR resource snapshot to prevent runtime and hydration failures.
 
-## Next Slice: Database-Backed Retrieval
+## Next Slice: Controlled Retrieval Cutover
 
-Objective: make NestJS produce the same user-scoped hybrid retrieval results as the existing Next.js implementation while Next continues to own LLM streaming and browser-facing SSE.
+Objective: allow Next to consume Nest's user-scoped hybrid retrieval result behind an explicit backend flag, while Next continues to own LLM streaming and browser-facing SSE.
 
 Planned work:
 
-1. Add keyword search, RRF fusion, and reranking behind the Nest retrieval service.
-3. Have Next call Nest behind a disabled-by-default feature flag.
-4. Add sampled parity logging for legacy and Nest retrieval responses.
-5. Enable the flag only after retrieval, citation, latency, and error-rate checks meet the agreed threshold.
+1. Add `RAG_BACKEND=legacy|shadow|nest` selection to the Next chat route.
+2. Use Nest's context and citations only for `nest`, with a bounded timeout and per-request legacy fallback.
+3. Keep `shadow` comparison enabled until retrieval, citation, latency, and error-rate checks meet the agreed threshold.
+4. Limit initial Nest traffic to an internal cohort; document a deterministic percentage rollout before wider exposure.
+5. Move LLM streaming only after the retrieval cutover remains stable.
 
 ## Operational Checklist
 

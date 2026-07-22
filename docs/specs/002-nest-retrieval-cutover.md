@@ -1,6 +1,6 @@
 # 002 Nest Retrieval Cutover
 
-Status: Draft
+Status: Implementing
 
 ## Goal
 
@@ -13,23 +13,43 @@ Move retrieval ownership from Next to Nest after shadow comparison proves qualit
 
 ## Design
 
-Next selects retrieval through `RAG_BACKEND=legacy|shadow|nest`. Nest owns vector recall, Jieba/TF-IDF keyword recall, RRF fusion, dedicated reranking, citations, and RAG context. Next remains the browser-facing SSE endpoint.
+Next selects retrieval through `RAG_BACKEND=legacy|shadow|nest`. Nest owns vector recall, Jieba/TF-IDF keyword recall, RRF fusion, dedicated reranking, citations, and RAG context. Next remains the browser-facing SSE endpoint and LLM caller.
+
+`legacy` runs the current Next retrieval path. `shadow` returns the legacy result and asynchronously compares it with Nest. `nest` waits for Nest retrieval and uses its citations and context; a timeout, invalid response, missing token, or non-2xx Nest response falls back to the legacy path for that request.
 
 ## Feature Flags And Rollback
 
-- Start with `RAG_BACKEND=legacy`.
-- Enable `shadow`, then limited internal `nest` traffic, then broader rollout.
-- Rollback: set `RAG_BACKEND=legacy`; no database rollback is required.
+- `RAG_BACKEND=legacy` is the default and is the immediate rollback value.
+- `RAG_BACKEND=shadow` enables asynchronous comparison. `RAG_SHADOW_NEST=true` remains a backwards-compatible alias while no explicit backend is configured.
+- `RAG_BACKEND=nest` enables the Nest primary path only for an email listed in `ADMIN_EMAILS` or a user ID listed in `RAG_NEST_INTERNAL_USER_IDS`. All other users use legacy. Percentage rollout requires a separate, deterministic cohort flag before use.
+- `RAG_NEST_TIMEOUT_MS` defaults to 3,500 milliseconds and is capped at 8,000 milliseconds. A timeout falls back to legacy.
+- Rollback: set `RAG_BACKEND=legacy` and redeploy/restart Next. No database rollback is required.
 
 ## Acceptance Criteria
 
 - No cross-tenant documents in Nest retrieval results.
 - Nest retrieval error rate is within 1% of legacy.
-- Median retrieval latency is within 20% of legacy.
+- Median retrieval latency is within 20% of legacy, and its P95 remains within the agreed service budget.
 - Top-5 overlap meets the threshold defined in spec 001.
 - Citations contain the same source/version metadata for overlapping chunks.
+- Nest failure, timeout, malformed JSON, or missing authentication never fails the chat response when a legacy retrieval can be produced.
+- Unknown `RAG_BACKEND` values resolve to `legacy` and are visible in server logs.
+- A request that uses Nest has the Nest citations and RAG context carried through the existing SSE metadata event.
 
 ## Open Questions
 
-- Define internal-user cohort and rollout percentage steps.
-- Define automated evaluation dataset and minimum sample size.
+- Define the internal-user cohort and percentage rollout mechanism before enabling external `nest` traffic.
+- Define the evaluation dataset and minimum sample size. Initial proposal: at least 100 representative, non-empty retrieval comparisons across supported languages and document types.
+
+## Implementation Record
+
+- Branch: `codex/nest-monorepo-migration`
+- Commits: pending
+- Commands run: `pnpm --filter @ai-arg/contracts build`, `pnpm --filter @ai-arg/api build`, `pnpm --filter @ai-arg/web exec eslint src/app/api/chat/route.ts`
+- Manual verification: pending an authenticated internal-user test with `RAG_BACKEND=nest`, followed by rollback verification with `RAG_BACKEND=legacy`.
+
+## Verification Notes
+
+- Shared contracts and the Nest API build successfully under Node `22.23.0`.
+- The focused chat-route lint check passes.
+- Full web TypeScript verification remains blocked by pre-existing type errors in ProfileClient, Supabase cookie callbacks, AuthProvider, ChatMarkdown, I18nProviderWrapper, NavigationProgress, and middleware. None are in this slice.
