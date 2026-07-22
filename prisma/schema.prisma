@@ -147,3 +147,21 @@ model OpenRouterChat {
   @@index([conversationId, createdAt])
   @@index([userId, createdAt])
 }
+
+model RagShadowComparison {
+  id                String   @id @default(cuid())
+  userId            String
+  queryHash         String
+  legacyDocumentIds Json
+  nestDocumentIds   Json
+  legacyCount       Int
+  nestCount         Int
+  overlap           Int
+  latencyMs         Int?
+  status            String
+  error             String?
+  createdAt         DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+}

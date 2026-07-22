@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation"
 import { Activity, CheckCircle2, CircleDotDashed, Database, Network, ShieldCheck } from "lucide-react"
 import { getUser } from "@/app/auth/server"
 import { isAdminEmail } from "@/lib/admin"
+import prisma from "@/lib/prisma"
 
 const stages = [
   { label: "Legacy retrieval", detail: "Production response source", status: "active" },
@@ -17,6 +18,9 @@ export default async function RagShadowPage({ params }: { params: Promise<{ loca
 
   const enabled = process.env.RAG_SHADOW_NEST === "true"
   const endpoint = process.env.NEST_API_URL ?? "Not configured"
+  const comparisons = await prisma.ragShadowComparison.findMany({ orderBy: { createdAt: "desc" }, take: 20 })
+  const completed = comparisons.filter((comparison) => comparison.status === "COMPLETED")
+  const overlapRate = completed.length === 0 ? null : Math.round((completed.reduce((total, comparison) => total + (comparison.legacyCount === 0 ? 0 : comparison.overlap / comparison.legacyCount), 0) / completed.length) * 100)
 
   return (
     <main className="min-h-full bg-slate-950 px-4 py-5 text-slate-100 sm:px-7 sm:py-7">
@@ -46,6 +50,11 @@ export default async function RagShadowPage({ params }: { params: Promise<{ loca
           <div className="divide-y divide-slate-800">
             {stages.map((stage) => <div key={stage.label} className="flex items-center gap-4 px-5 py-4"><CheckCircle2 className={`size-5 ${stage.status === "active" ? "text-emerald-400" : "text-slate-700"}`} /><div className="min-w-0 flex-1"><p className="text-sm text-slate-200">{stage.label}</p><p className="text-xs text-slate-500">{stage.detail}</p></div>{stage.status === "pending" && <CircleDotDashed className="size-4 text-amber-400" />}</div>)}
           </div>
+        </section>
+
+        <section className="border border-slate-800 bg-slate-950">
+          <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4"><h2 className="text-sm font-medium text-white">Recent comparisons</h2><span className="font-mono text-xs text-cyan-300">{overlapRate === null ? "No completed runs" : `${overlapRate}% average overlap`}</span></div>
+          {comparisons.length === 0 ? <p className="px-5 py-10 text-sm text-slate-500">No shadow comparisons recorded. Send a chat message while shadow mode is enabled.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="border-b border-slate-800 text-xs uppercase tracking-[0.12em] text-slate-500"><tr><th className="px-5 py-3 font-medium">Time</th><th className="px-5 py-3 font-medium">Status</th><th className="px-5 py-3 font-medium">Overlap</th><th className="px-5 py-3 font-medium">Latency</th><th className="px-5 py-3 font-medium">Details</th></tr></thead><tbody className="divide-y divide-slate-800">{comparisons.map((comparison) => <tr key={comparison.id} className="text-slate-300"><td className="px-5 py-3 text-xs text-slate-500">{comparison.createdAt.toLocaleString()}</td><td className="px-5 py-3"><span className={comparison.status === "COMPLETED" ? "text-emerald-300" : comparison.status === "FAILED" ? "text-rose-300" : "text-amber-300"}>{comparison.status}</span></td><td className="px-5 py-3 font-mono">{comparison.overlap}/{comparison.legacyCount}</td><td className="px-5 py-3 font-mono">{comparison.latencyMs ?? "-"}ms</td><td className="max-w-80 truncate px-5 py-3 text-xs text-slate-500">{comparison.error ?? comparison.queryHash.slice(0, 12)}</td></tr>)}</tbody></table></div>}
         </section>
       </div>
     </main>
