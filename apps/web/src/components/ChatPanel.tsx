@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react'
-import { notFound } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { User } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
@@ -67,6 +66,11 @@ function readMessageMetadata(metadata: unknown) {
   }
 }
 
+function shouldShowCitations(message: Message) {
+  if (!message.citations?.length || typeof message.content !== 'string') return false
+  return !/知识库中暂无足够信息|not enough information in the knowledge base/i.test(message.content)
+}
+
 interface ChatPanelProps {
   initialConversationId?: string | null
   currentUser: User | null
@@ -111,10 +115,6 @@ export default function ChatPanel({
     !!(preloadedMessages && preloadedMessages.length > 0)
   )
   const [shouldNotFound, setShouldNotFound] = useState(false)
-
-  if (shouldNotFound) {
-    notFound()
-  }
 
   const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current
@@ -270,6 +270,7 @@ export default function ChatPanel({
     setMessages(prev => [...prev, userMessage])
     setInput('')
     clearImage()
+    let pendingAssistantId: string | undefined
 
     try {
       // 准备发送到 API 的消息
@@ -300,6 +301,7 @@ export default function ChatPanel({
         displayContent: '',
         id: uuidv4() 
       }
+      pendingAssistantId = assistantMessage.id
       setMessages(prev => [...prev, assistantMessage])
 
       const reader = response.body?.getReader()
@@ -326,6 +328,9 @@ export default function ChatPanel({
               setMessages(prev => prev.map(m => m.id === assistantMessage.id ? { ...assistantMessage } : m))
               continue
             }
+            if (jsonData.type === 'error') {
+              throw new Error(typeof jsonData.error === 'string' ? jsonData.error : '模型流式响应中断')
+            }
             if (jsonData.choices?.[0]?.delta?.content) {
               let content = jsonData.choices[0].delta.content
               if (typeof content === 'object' && content !== null) {
@@ -340,6 +345,10 @@ export default function ChatPanel({
             console.error('JSON 解析错误:', jsonError, jsonStr)
           }
         }
+      }
+
+      if (!fullAssistantContent.trim()) {
+        throw new Error('聊天响应未包含可显示的内容')
       }
 
       if (fullAssistantContent && currentUser && convId) {
@@ -372,10 +381,22 @@ export default function ChatPanel({
       }
     } catch (error) {
       console.error('聊天请求错误:', error)
-      setMessages(prev => [
-        ...prev,
-        { role: 'assistant', content: '抱歉，处理您的请求时出错了。请稍后再试。', displayContent: '抱歉，处理您的请求时出错了。请稍后再试。', id: uuidv4() },
-      ])
+      const errorMessage: Message = {
+        role: 'assistant',
+        content: '抱歉，处理您的请求时出错了。请稍后再试。',
+        displayContent: '抱歉，处理您的请求时出错了。请稍后再试。',
+        id: pendingAssistantId ?? uuidv4(),
+      }
+      setMessages(prev => pendingAssistantId
+        ? prev.map((message) => message.id === pendingAssistantId
+          ? {
+              ...message,
+              content: errorMessage.content,
+              displayContent: errorMessage.displayContent,
+              citations: undefined,
+            }
+          : message)
+        : [...prev, errorMessage])
     } finally {
       setIsLoading(false)
     }
@@ -515,6 +536,8 @@ export default function ChatPanel({
     }
   }
 
+  if (shouldNotFound) return null
+
   return (
     <div className="flex flex-col h-full">
       {/* Messages Area */}
@@ -609,7 +632,7 @@ export default function ChatPanel({
                   <div className="prose prose-sm dark:prose-invert max-w-none">
                     <ChatMarkdown content={typeof message.content === 'string' ? message.content : ''} />
                   </div>
-                  {message.citations && message.citations.length > 0 && (
+                  {shouldShowCitations(message) && (
                     <details className="mt-3 border-t pt-2 text-xs text-muted-foreground">
                       <summary className="cursor-pointer select-none font-medium">
                         来源 {message.citations.length}
