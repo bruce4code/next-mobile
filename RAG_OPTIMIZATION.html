@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG 优化实战：从"能用"到"好用"的蜕变</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            line-height: 1.8;
+            color: #333;
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            background-color: #fff;
+            padding: 40px 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        h1 {
+            font-size: 26px;
+            font-weight: 800;
+            color: #1a1a1a;
+            margin-bottom: 30px;
+            text-align: center;
+            line-height: 1.4;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #0066ff;
+        }
+        
+        h2 {
+            font-size: 22px;
+            font-weight: 700;
+            color: #1a1a1a;
+            margin: 35px 0 20px;
+            padding-left: 12px;
+            border-left: 4px solid #0066ff;
+        }
+        
+        h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin: 25px 0 15px;
+        }
+        
+        p {
+            font-size: 16px;
+            margin-bottom: 18px;
+            text-align: justify;
+        }
+        
+        ul, ol {
+            margin: 15px 0;
+            padding-left: 25px;
+        }
+        
+        li {
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+        
+        strong {
+            color: #0066ff;
+            font-weight: 600;
+        }
+        
+        code {
+            background-color: #f6f8fa;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            color: #e83e8c;
+        }
+        
+        pre {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 20px 0;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+            font-size: 14px;
+        }
+        
+        .tip-box {
+            background-color: #e7f3ff;
+            border-left: 4px solid #0066ff;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .warning-box {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .success-box {
+            background-color: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .highlight {
+            background: linear-gradient(120deg, #fff9c4 0%, #fff9c4 100%);
+            background-repeat: no-repeat;
+            background-size: 100% 40%;
+            background-position: 0 90%;
+        }
+        
+        .divider {
+            height: 1px;
+            background: linear-gradient(to right, transparent, #ddd, transparent);
+            margin: 30px 0;
+        }
+        
+        .step-number {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            background-color: #0066ff;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        blockquote {
+            border-left: 4px solid #0066ff;
+            padding-left: 20px;
+            margin: 20px 0;
+            color: #666;
+            font-style: italic;
+        }
+        
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 15px;
+        }
+        
+        .comparison-table th {
+            background-color: #0066ff;
+            color: white;
+            padding: 10px 12px;
+            text-align: left;
+        }
+        
+        .comparison-table th:first-child {
+            border-radius: 6px 0 0 0;
+        }
+        
+        .comparison-table th:last-child {
+            border-radius: 0 6px 0 0;
+        }
+        
+        .comparison-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .comparison-table tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .comparison-table tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        
+        .flow-container {
+            background-color: #f8f9fa;
+            border-radius: 12px;
+            padding: 24px;
+            margin: 20px 0;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            line-height: 2;
+        }
+        
+        .flow-container .arrow {
+            color: #999;
+        }
+        
+        .flow-container .box {
+            display: inline-block;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 8px 16px;
+            margin: 4px 0;
+        }
+        
+        .flow-container .box-primary {
+            border-color: #0066ff;
+            background: #e7f3ff;
+        }
+        
+        .flow-container .box-success {
+            border-color: #28a745;
+            background: #d4edda;
+        }
+        
+        .flow-container .box-warning {
+            border-color: #ffc107;
+            background: #fff3cd;
+        }
+        
+        .tag {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 500;
+            margin: 2px;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            color: #999;
+            font-size: 14px;
+        }
+        
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;
+            }
+            
+            .container {
+                padding: 25px 20px;
+            }
+            
+            h1 {
+                font-size: 22px;
+            }
+            
+            h2 {
+                font-size: 20px;
+            }
+            
+            p, li {
+                font-size: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>RAG 优化实战：从"能用"到"好用"的蜕变</h1>
+        
+        <h2>背景</h2>
+        <p>上篇文章分享了从零到1构建 RAG 系统的过程，系统跑起来之后，我开始思考一个问题：<strong>它能用，但真的好用吗？</strong></p>
+        <p>在实际使用中，我发现了一些痛点：</p>
+        <ul>
+            <li><strong>相似度阈值</strong>：搜索结果经常包含一堆低相关的文档，干扰 AI 判断</li>
+            <li><strong>关键词提取</strong>：文本搜索降级时的关键词提取靠手工维护词典，覆盖不全</li>
+            <li><strong>RAG 上下文位置</strong>：长对话中，LLM 注意力被大量聊天历史分散，知识库内容被"冲淡"</li>
+            <li><strong>用户提问方式</strong>：用户不会用"精准关键词"提问，经常说"怎么退？""坏了怎么办"这类模糊问题</li>
+        </ul>
+        <p>这篇文章记录了我对 RAG 系统进行的一系列优化实践，希望能给同样在打磨 RAG 的朋友一些参考。</p>
+        
+        <div class="divider"></div>
+        
+        <h2>优化一：Prompt 优化 + 相似度阈值</h2>
+        
+        <h3>问题</h3>
+        <p>最初的 Prompt 设计很啰嗦：</p>
+        <pre><code>【重要指令】你必须优先使用以下知识库中的信息来回答用户的问题！
+【知识库参考资料】
+...
+【强制回答规则】
+1. 🔴 必须首先尝试使用知识库中的信息回答
+2. 🟢 ...</code></pre>
+        <p>实际测试发现，LLM 对这类"用力过猛"的指令反而容易"过度服从"——即使文档完全不相关，它也会强行从文档中编造答案。</p>
+        <p>同时，向量搜索返回的所有结果都一股脑塞进去，相似度 20% 的文档也在凑数。</p>
+        
+        <h3>解决方案</h3>
+        
+        <p><strong>1. 简化 Prompt</strong></p>
+        <pre><code>export function buildRAGContext(documents) {
+  const context = documents
+    .map((doc, index) => {
+      const relevance = doc.similarity !== undefined
+        ? ` (相关度: ${(doc.similarity * 100).toFixed(0)}%)`
+        : ''
+      return `[文档${index + 1}] ${doc.title}${relevance}\n${doc.content}`
+    })
+    .join('\n\n---\n\n')
+
+  return `你是电商AI助手，请严格基于以下知识库文档回答用户问题。
+
+## 知识库文档
+${context}
+
+## 回答要求
+1. 必须注明引用来源，格式：[来源：文档名]
+2. 如果所有文档都与用户问题无关，回复"知识库中暂无相关信息，请补充相关文档后再试"
+3. 回答简洁准确，不编造文档中没有的内容`
+}</code></pre>
+        <p>改动要点：</p>
+        <ul>
+            <li>把"用力过猛"的指令改成简洁清晰的要求</li>
+            <li>明确要求"不编造文档中没有的内容"</li>
+            <li>要求注明引用来源，方便追溯</li>
+            <li>当文档无关时直接告知用户，而不是强行回答</li>
+        </ul>
+        
+        <p><strong>2. 引入相似度阈值</strong></p>
+        <pre><code>const DEFAULT_MIN_SIMILARITY = 0.35</code></pre>
+        <p>只有相似度 >= 0.35 的文档才进入上下文。这个值怎么定的？</p>
+        <ul>
+            <li>我跑了几十条真实用户问题，观察向量搜索返回的相似度分布</li>
+            <li>大部分真正相关的文档相似度在 0.4~0.7 之间</li>
+            <li>0.3 以下的几乎都是无关文档</li>
+            <li>0.35 是一个比较安全的阈值——既不漏掉相关文档，又能过滤大部分噪音</li>
+        </ul>
+        
+        <p><strong>3. 粗召回 + 阈值过滤</strong></p>
+        <p>还有一个关键细节：搜索时先多拉一些文档，再按阈值过滤，而不是直接限制 topK。</p>
+        <pre><code>const VECTOR_RECALL_MULTIPLIER = 3
+
+// 粗召回：多拉一些文档，给阈值过滤留空间
+const recallCount = topK * VECTOR_RECALL_MULTIPLIER
+
+// 搜索...
+// 然后按阈值过滤
+const filtered = results.filter((r) => r.similarity >= minSimilarity)
+const finalResults = filtered.slice(0, topK)</code></pre>
+        
+        <div class="tip-box">
+            <strong>💡 举个例子：</strong>
+            <p>假设用户问"怎么申请退款"，向量搜索可能把"退款政策"（相似度 0.52）、"物流查询"（相似度 0.28）、"退货流程"（相似度 0.42）都召回来。如果只取 top3，会把相似度 0.28 的物流文档也塞进去。粗召回 9 条再过滤，只保留 >= 0.35 的，最终只取 top5，质量明显提升。</p>
+        </div>
+        
+        <h3>效果对比</h3>
+        
+        <table class="comparison-table">
+            <tr>
+                <th>指标</th>
+                <th>优化前</th>
+                <th>优化后</th>
+            </tr>
+            <tr>
+                <td>上下文噪音</td>
+                <td>可能包含 0.2 相似度的无关文档</td>
+                <td>全部 &gt;= 0.35</td>
+            </tr>
+            <tr>
+                <td>AI 编造答案</td>
+                <td>经常发生</td>
+                <td>显著减少</td>
+            </tr>
+            <tr>
+                <td>答案引用来源</td>
+                <td>无</td>
+                <td>清晰标注文档来源</td>
+            </tr>
+            <tr>
+                <td>未找到信息时</td>
+                <td>强行回答</td>
+                <td>告知用户补充文档</td>
+            </tr>
+        </table>
+        
+        <div class="divider"></div>
+        
+        <h2>优化二：文本搜索降级策略</h2>
+        
+        <h3>问题</h3>
+        <p>向量搜索依赖 embedding API，但 API 可能超时、限流或临时不可用。最初的做法是直接报错，用户体验很差。</p>
+        
+        <h3>解决方案</h3>
+        <p>当向量搜索失败或所有结果都被阈值过滤掉时，自动降级为文本搜索（关键词匹配）。</p>
+        <pre><code>try {
+  queryEmbedding = await generateEmbedding(query)
+} catch (embeddingError) {
+  console.warn('⚠️ 无法生成查询 embedding，尝试文本搜索:', embeddingError)
+  return await searchByText(query, options)
+}</code></pre>
+        
+        <p>这里的关键是关键词提取。最初的实现是一个手工维护的电商词典 + 正向最大匹配算法：</p>
+        <pre><code>const DICT = [
+  '退换货', '退款', '订单', '物流', '苹果', '火龙果', ...
+].sort((a, b) => b.length - a.length)
+
+function extractKeywords(text: string): string[] {
+  // 正向最大匹配...
+}</code></pre>
+        
+        <div class="warning-box">
+            <strong>⚠️ 这个方案的问题很明显：</strong>
+            <ul>
+                <li><strong>词典维护成本高</strong>：每新增一个商品品类（比如"榴莲"），都要手动添加</li>
+                <li><strong>无法处理未登录词</strong>：用户说"这个果子坏了"，词典里有"水果"没有"果子"，识别不出来</li>
+                <li><strong>分词粒度不准确</strong>："退换货政策"会匹配"退换货"，但"退货申请流程"就乱了</li>
+            </ul>
+        </div>
+        
+        <h3>优化：从手工词典到 nodejieba</h3>
+        <p>经过调研，我决定使用结巴分词的 Node.js 原生版本 —— <code>nodejieba</code>。</p>
+        
+        <pre><code>import * as jieba from 'nodejieba'
+
+function extractKeywords(text: string): string[] {
+  const keywords = jieba.extract(text, 5)
+  return keywords
+    .map(k => k.word)
+    .filter(word => word.length > 0 && !STOP_WORDS.has(word) && !/^\d+$/.test(word))
+}</code></pre>
+        
+        <p>nodejieba 使用 TF-IDF 算法提取关键词，效果：</p>
+        <pre><code>退换货政策是什么 → 退换货, 政策
+如何申请退款 → 退款, 申请
+苹果多少钱一斤 → 一斤, 苹果
+订单物流在哪里查 → 订单, 物流
+怎么联系客服 → 客服, 联系
+优惠券怎么用 → 优惠券
+为什么水果坏了 → 水果
+我想退掉这个火龙果 → 火龙果, 退掉</code></pre>
+        
+        <div class="tip-box">
+            <strong>💡 对比效果：</strong>
+            <p><strong>词典方案</strong>："为什么水果坏了" → 什么, 水果, 坏了（"为什么"被当成关键词）</p>
+            <p><strong>nodejieba TF-IDF</strong>："为什么水果坏了" → 水果（"为什么"被 TF-IDF 自动降权）</p>
+        </div>
+        
+        <h3>安装 nodejieba 的坑</h3>
+        <p>nodejieba 是 C++ 原生模块，安装时需要编译。用 pnpm 安装时默认跳过了编译脚本，需要额外两步：</p>
+        <pre><code># 1. 安装依赖
+pnpm add nodejieba
+
+# 2. 下载/编译原生绑定
+cd node_modules/nodejieba && npx @mapbox/node-pre-gyp install --fallback-to-build</code></pre>
+        <p>关键是第二步。nodejieba 使用了 <code>@mapbox/node-pre-gyp</code>，它会先尝试下载预编译的二进制文件（<code>nodejieba-v3.5.8-node-v115-darwin-arm64-unknown.tar.gz</code>），如果下载失败则回退到从源码编译（需要 cmake）。</p>
+        
+        <div class="divider"></div>
+        
+        <h2>优化三：RAG 上下文位置优化</h2>
+        
+        <h3>问题</h3>
+        <p>最初的设计把 RAG 上下文放在消息列表的最前面：</p>
+        <pre><code>[system: RAG 上下文]
+[user: 之前的对话历史...]
+[assistant: ...]
+[user: 当前问题]</code></pre>
+        <p>但在长对话中，LLM 的注意力集中在最近的几条消息上，前面的 RAG 上下文容易被"冲淡"。测试发现，当对话超过 10 轮后，LLM 经常忽略知识库内容，开始用自己的知识回答。</p>
+        
+        <h3>解决方案</h3>
+        <p>把 RAG 上下文插入到用户最后一条消息之前：</p>
+        <pre><code>const lastUserIndex = messages.findLastIndex((msg) => msg.role === 'user')
+if (lastUserIndex >= 0) {
+  enhancedMessages = [
+    ...messages.slice(0, lastUserIndex),
+    { role: 'system', content: ragContext },
+    ...messages.slice(lastUserIndex),
+  ]
+}</code></pre>
+        
+        <p>调整后的消息顺序：</p>
+        <pre><code>[user: 之前的对话历史...]
+[assistant: ...]
+[system: RAG 上下文]     ← 插在这里
+[user: 当前问题]</code></pre>
+        
+        <div class="success-box">
+            <strong>✅ 效果：</strong>RAG 上下文紧挨着当前问题，LLM 在处理时会把二者放在一起理解，效果明显提升。
+        </div>
+        
+        <h3>效果对比</h3>
+        
+        <table class="comparison-table">
+            <tr>
+                <th>对话轮数</th>
+                <th>优化前（RAG 在最前面）</th>
+                <th>优化后（RAG 在最后一条消息前）</th>
+            </tr>
+            <tr>
+                <td>1-3 轮</td>
+                <td>✅ 很好</td>
+                <td>✅ 很好</td>
+            </tr>
+            <tr>
+                <td>5-8 轮</td>
+                <td>⚠️ 偶尔忽略知识库</td>
+                <td>✅ 稳定引用</td>
+            </tr>
+            <tr>
+                <td>10+ 轮</td>
+                <td>❌ 经常忽略</td>
+                <td>✅ 仍然稳定</td>
+            </tr>
+        </table>
+        
+        <div class="divider"></div>
+        
+        <h2>优化四：相似度阈值动态调整思路</h2>
+        <p>目前使用的是固定阈值 0.35，但在实际使用中我发现：</p>
+        <ul>
+            <li><strong>不同品类的最佳阈值不同</strong>：标准化的政策文档（如退换货政策）相似度通常较高（0.5+），而灵活的问答文档（如"怎么联系客服"）相似度可能偏低（0.3~0.4）</li>
+            <li><strong>不同查询的语义粒度不同</strong>："退货"这种具体查询容易匹配，"帮我看看"这种模糊查询很难匹配</li>
+        </ul>
+        <p>未来的优化方向：</p>
+        <ul>
+            <li>根据文档类型动态调整阈值</li>
+            <li>或者根据查询的关键词数量和质量调整召回策略</li>
+        </ul>
+        
+        <div class="divider"></div>
+        
+        <h2>优化五：停用词过滤</h2>
+        
+        <h3>问题</h3>
+        <p>即使用了 nodejieba，一些高频无意义词还是可能混入关键词列表。例如用户说"查一下订单"，nodejieba 可能提取出"查一下"和"订单"，但"查一下"对搜索没有帮助。</p>
+        
+        <h3>解决方案</h3>
+        <p>保留一个精简的停用词表作为兜底过滤：</p>
+        <pre><code>const STOP_WORDS = new Set([
+  '的', '了', '在', '是', '我', '你',
+  '吗', '呢', '吧', '啊', '呀',
+  '查', '一下', '一下下',
+  // ... 其他停用词
+])</code></pre>
+        
+        <p>在 nodejieba 提取关键词后，再经过停用词过滤：</p>
+        <pre><code>const keywords = jieba.extract(text, 5)
+return keywords
+  .map(k => k.word)
+  .filter(word => word.length > 0 && !STOP_WORDS.has(word) && !/^\d+$/.test(word))</code></pre>
+        
+        <div class="tip-box">
+            <strong>💡 注意：</strong>nodejieba 的 TF-IDF 算法已经内置了停用词过滤，这里的停用词表只是"双保险"，防止极个别情况下 TF-IDF 权重异常的词混入。
+        </div>
+        
+        <div class="divider"></div>
+        
+        <h2>最终架构</h2>
+        <p>优化后的 RAG 完整工作流程：</p>
+        
+        <div class="flow-container">
+用户提问<br>
+<span class="arrow">│</span><br>
+<span class="arrow">▼</span><br>
+┌─────────────────────────────────────┐<br>
+│ 1. 生成查询 embedding                │ <span class="tag">OpenRouter + Qwen</span><br>
+└──────────────┬──────────────────────┘<br>
+<span class="arrow">│</span> 成功<br>
+<span class="arrow">▼</span><br>
+┌─────────────────────────────────────┐<br>
+│ 2. 向量搜索                          │ <span class="tag">粗召回 topK×3</span><br>
+│    (pgvector)                        │<br>
+└──────────────┬──────────────────────┘<br>
+<span class="arrow">│</span> 有结果&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 无结果<br>
+<span class="arrow">▼</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="arrow">▼</span><br>
+┌──────────────────┐&nbsp;&nbsp; ┌──────────────────────┐<br>
+│ 3. 阈值过滤       │&nbsp;&nbsp; │ 3. 文本搜索降级       │<br>
+│ similarity ≥ 0.35 │&nbsp;&nbsp; │ nodejieba 关键词提取  │<br>
+└────────┬─────────┘&nbsp;&nbsp; └──────────┬───────────┘<br>
+<span class="arrow">│</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="arrow">│</span><br>
+<span class="arrow">▼</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="arrow">▼</span><br>
+┌──────────────────────────────────────────────┐<br>
+│ 4. LLM 基于上下文 + 用户问题生成回答           │<br>
+│    (RAG 上下文插入在用户最后一条消息之前)      │<br>
+└──────────────────────────────────────────────┘<br>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <h2>总结与心得</h2>
+        <p>这次优化让我深刻体会到几个道理：</p>
+        
+        <h3>1. RAG 不只是"搜索 + 拼接"</h3>
+        <p>很多人以为 RAG 就是把文档搜出来拼在一起扔给 LLM。实际远不止如此：</p>
+        <ul>
+            <li><strong>搜索质量</strong>决定 RAG 的上限</li>
+            <li><strong>阈值过滤</strong>决定进入上下文的文档质量</li>
+            <li><strong>Prompt 设计</strong>影响 LLM 如何理解和使用这些文档</li>
+            <li><strong>上下文位置</strong>影响 LLM 的注意力分配</li>
+        </ul>
+        
+        <h3>2. 好的降级策略比完美的主方案更重要</h3>
+        <p>向量搜索 API 可能随时不可用（超时、限流、模型下线）。一个稳健的 RAG 系统必须有降级策略：</p>
+        <div class="warning-box">
+            <p>向量搜索 → 失败 → 文本搜索（TF-IDF 关键词）</p>
+            <p>文本搜索 → 失败 → 告知用户补充文档</p>
+        </div>
+        
+        <h3>3. 关键词提取是文本搜索的核心</h3>
+        <p>文本搜索看起来很"土"，但在很多场景下比向量搜索更可靠。而文本搜索的质量完全取决于关键词提取的质量。<strong>从手工词典到 nodejieba 的升级，是这次优化中收益最大的改动之一。</strong></p>
+        
+        <h3>下一步优化方向</h3>
+        <ul>
+            <li>✅ 文档分块（chunking）：长文档拆分成小段，每段独立 embedding（已实现）</li>
+            <li>⬜ 混合搜索（向量 + 关键词权重融合）</li>
+            <li>✅ embedding 缓存：基于 Supabase 数据库持久化（已实现）</li>
+            <li>⬜ 动态阈值：根据查询类型自动调整相似度阈值</li>
+            <li>⬜ RAG 可视化调试工具</li>
+        </ul>
+        
+        <div class="divider"></div>
+        
+        <blockquote>
+            从"能用"到"好用"，中间隔了无数个细节优化。希望这篇文章能帮你少走一些弯路。
+        </blockquote>
+        
+        <div class="footer">
+            <p>📌 本文原创，欢迎转发分享</p>
+            <p>💬 有问题欢迎在评论区交流</p>
+        </div>
+    </div>
+</body>
+</html>
