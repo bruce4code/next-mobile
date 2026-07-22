@@ -1,6 +1,6 @@
 # 002 Nest Retrieval Cutover
 
-Status: Implementing
+Status: Implemented (pending internal-user runtime verification)
 
 ## Goal
 
@@ -44,9 +44,9 @@ Next selects retrieval through `RAG_BACKEND=legacy|shadow|nest`. Nest owns vecto
 ## Implementation Record
 
 - Branch: `codex/nest-monorepo-migration`
-- Commits: pending
-- Commands run: `pnpm --filter @ai-arg/contracts build`, `pnpm --filter @ai-arg/api build`, `pnpm --filter @ai-arg/web exec eslint src/app/api/chat/route.ts`
-- Manual verification: pending an authenticated internal-user test with `RAG_BACKEND=nest`, followed by rollback verification with `RAG_BACKEND=legacy`.
+- Commits: `fd95489` (RAG_BACKEND cutover), `22f60d4` (shadow persistence + monitor), `3fad8b4` (Nest request logging), `6c91332` (ChatPanel hardening).
+- Commands run (Node `22.23.0`): `pnpm --filter @ai-arg/contracts build`, `pnpm --filter @ai-arg/api build`, `pnpm prisma:generate`, `pnpm --filter @ai-arg/web exec eslint src/app/api/chat/route.ts`.
+- Manual verification: still pending an authenticated internal-user test with `RAG_BACKEND=nest`, followed by rollback verification with `RAG_BACKEND=legacy`. Requires a running Nest instance and a seeded tenant.
 
 ## Verification Notes
 
