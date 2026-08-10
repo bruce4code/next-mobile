@@ -25,6 +25,13 @@ interface Document {
   createdAt: string
   updatedAt: string
   similarity?: number
+  status: 'QUEUED' | 'PROCESSING' | 'READY' | 'FAILED'
+  version: number
+  sourceType: string
+  sourceName?: string
+  sourceUri?: string
+  lastIndexedAt?: string
+  ingestionError?: string
 }
 
 const CATEGORIES = [
@@ -51,21 +58,23 @@ export function KnowledgePageClient() {
     content: '',
     contentType: 'text',
     category: 'faq',
+    sourceType: 'inline',
+    sourceName: '',
   })
 
   useEffect(() => {
     fetchDocuments()
   }, [selectedCategory]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fetchDocuments = async () => {
+  const fetchDocuments = async (background = false) => {
     try {
-      setIsLoading(true)
+      if (!background) setIsLoading(true)
       const params = new URLSearchParams()
       if (selectedCategory !== 'all') {
         params.set('category', selectedCategory)
       }
       
-      const response = await fetch(`/api/documents?${params.toString()}`)
+      const response = await fetch(`/api/documents?${params.toString()}`, { cache: 'no-store' })
       
       if (!response.ok) {
         const errorText = await response.text()
@@ -77,9 +86,19 @@ export function KnowledgePageClient() {
     } catch (error) {
       toast.error(`获取文档失败: ${error instanceof Error ? error.message : '未知错误'}`)
     } finally {
-      setIsLoading(false)
+      if (!background) setIsLoading(false)
     }
   }
+
+  useEffect(() => {
+    const hasActiveIngestion = documents.some((document) =>
+      document.status === 'QUEUED' || document.status === 'PROCESSING'
+    )
+    if (!hasActiveIngestion) return
+
+    const timer = window.setTimeout(() => fetchDocuments(true), 2_500)
+    return () => window.clearTimeout(timer)
+  }, [documents, selectedCategory]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAddDocument = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -88,7 +107,10 @@ export function KnowledgePageClient() {
     try {
       const response = await fetch('/api/documents', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': crypto.randomUUID(),
+        },
         body: JSON.stringify(newDoc),
       })
       
@@ -98,13 +120,15 @@ export function KnowledgePageClient() {
       }
       
       await response.json()
-      toast.success('文档添加成功')
+      toast.success('文档已进入处理队列')
       setIsAddDialogOpen(false)
       setNewDoc({
         title: '',
         content: '',
         contentType: 'text',
         category: 'faq',
+        sourceType: 'inline',
+        sourceName: '',
       })
       fetchDocuments()
     } catch (error) {
@@ -121,7 +145,14 @@ export function KnowledgePageClient() {
     try {
       const content = await file.text()
       const title = file.name.replace(/\.(md|markdown)$/i, '')
-      setNewDoc({ ...newDoc, title, content, contentType: 'markdown' })
+      setNewDoc({
+        ...newDoc,
+        title,
+        content,
+        contentType: 'markdown',
+        sourceType: 'upload',
+        sourceName: file.name,
+      })
       toast.success(`已加载文件: ${file.name}`)
     } catch {
       toast.error('读取文件失败')
@@ -139,9 +170,12 @@ export function KnowledgePageClient() {
     setIsSaving(true)
     
     try {
-      const response = await fetch('/api/documents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch(`/api/documents?id=${editingDoc.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': crypto.randomUUID(),
+        },
         body: JSON.stringify({
           title: editingDoc.title,
           content: editingDoc.content,
@@ -152,7 +186,7 @@ export function KnowledgePageClient() {
       
       if (!response.ok) throw new Error('更新文档失败')
       
-      toast.success('文档更新成功')
+      toast.success('文档更新已进入处理队列')
       setIsEditDialogOpen(false)
       setEditingDoc(null)
       fetchDocuments()
@@ -196,11 +230,11 @@ export function KnowledgePageClient() {
         params.set('category', selectedCategory)
       }
       
-      const response = await fetch(`/api/documents?${params.toString()}`)
+      const response = await fetch(`/api/documents?${params.toString()}`, { cache: 'no-store' })
       if (!response.ok) throw new Error('搜索失败')
       const data = await response.json()
       setDocuments(data)
-    } catch (error) {
+    } catch {
       toast.error('搜索失败')
     } finally {
       setIsLoading(false)
@@ -224,6 +258,26 @@ export function KnowledgePageClient() {
       <Badge variant="secondary" className="flex items-center gap-1">
         <Icon className="w-3 h-3" />
         {cat.label}
+      </Badge>
+    )
+  }
+
+  const getStatusBadge = (document: Document) => {
+    const labels = {
+      QUEUED: '排队中',
+      PROCESSING: '处理中',
+      READY: '可检索',
+      FAILED: '处理失败',
+    }
+    const variant = document.status === 'FAILED'
+      ? 'destructive'
+      : document.status === 'READY'
+        ? 'secondary'
+        : 'outline'
+
+    return (
+      <Badge variant={variant} title={document.ingestionError || undefined}>
+        {labels[document.status]}
       </Badge>
     )
   }
@@ -426,6 +480,7 @@ export function KnowledgePageClient() {
                               <div className="flex items-center gap-2 mb-1">
                                 <h3 className="font-medium truncate">{doc.title}</h3>
                                 {getCategoryBadge(doc.category)}
+                                {getStatusBadge(doc)}
                               </div>
                               <p className="text-sm text-muted-foreground line-clamp-2 mb-2">
                                 {doc.content}
@@ -497,6 +552,7 @@ export function KnowledgePageClient() {
                           <CardTitle className="text-lg truncate">{doc.title}</CardTitle>
                           <CardDescription className="flex items-center gap-2 mt-1">
                             {getCategoryBadge(doc.category)}
+                            {getStatusBadge(doc)}
                             <Badge variant="outline" className="text-xs">
                               {doc.contentType}
                             </Badge>

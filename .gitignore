@@ -41,3 +41,6 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# Claude 外部安装技能（可通过 npx skills add 重新安装）
+.claude/skills/

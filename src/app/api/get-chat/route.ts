@@ -1,27 +1,38 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
+import { getUser } from '@/app/auth/server'
+import { z } from 'zod'
 
 const DEFAULT_PAGE_SIZE = 10
 const MAX_PAGE_SIZE = 100
 
+const QuerySchema = z.object({
+  conversationId: z.string().min(1).max(128).optional(),
+  cursorCreatedAt: z.string().datetime().optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
+})
+
 export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url)
-    const userId = searchParams.get('userId')
-    const conversationId = searchParams.get('conversationId')
-    const cursorCreatedAt = searchParams.get('cursorCreatedAt')
-    const limit = Math.min(
-      parseInt(searchParams.get('limit') || String(DEFAULT_PAGE_SIZE)),
-      MAX_PAGE_SIZE
-    )
-
-    if (!userId && !conversationId) {
-      return NextResponse.json({ error: '缺少 userId 或 conversationId 参数' }, { status: 400 })
+    const user = await getUser()
+    if (!user) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 })
     }
 
+    const { searchParams } = new URL(request.url)
+    const parsed = QuerySchema.safeParse({
+      conversationId: searchParams.get('conversationId') ?? undefined,
+      cursorCreatedAt: searchParams.get('cursorCreatedAt') ?? undefined,
+      limit: searchParams.get('limit') ?? undefined,
+    })
+    if (!parsed.success) {
+      return NextResponse.json({ error: '请求参数校验失败', details: parsed.error.issues }, { status: 400 })
+    }
+
+    const { conversationId, cursorCreatedAt, limit } = parsed.data
+
     if (conversationId) {
-      const where: Record<string, unknown> = { conversationId }
-      if (userId) where.userId = userId
+      const where: Record<string, unknown> = { conversationId, userId: user.id }
 
       if (cursorCreatedAt) {
         where.createdAt = { lt: new Date(cursorCreatedAt) }
@@ -49,13 +60,14 @@ export async function GET(request: Request) {
     // 对话列表（已有逻辑保持不变）
     const grouped = await prisma.openRouterChat.groupBy({
       by: ['conversationId'],
-      where: { userId },
+      where: { userId: user.id },
       _min: { createdAt: true, id: true },
     })
 
     const chatHistories = await prisma.openRouterChat.findMany({
       where: {
-        id: { in: grouped.map(g => g._min.id).filter(Boolean) as string[] }
+        id: { in: grouped.map(g => g._min.id).filter(Boolean) as string[] },
+        userId: user.id,
       },
       orderBy: { createdAt: 'desc' },
       select: {

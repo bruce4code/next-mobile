@@ -10,8 +10,8 @@ export const cachedFetch = cache(async (url: string, options?: RequestInit) => {
 })
 
 // 缓存聊天历史
-export const cachedGetChatHistory = cache(async (userId: string) => {
-  return cachedFetch(`/api/get-chat?userId=${userId}`)
+export const cachedGetChatHistory = cache(async () => {
+  return cachedFetch('/api/get-chat')
 })
 
 // 缓存对话消息
@@ -23,4 +23,4 @@ export const cachedGetConversation = cache(async (conversationId: string) => {
 export const cachedGetUser = cache(async () => {
   // 这里可以缓存用户信息获取逻辑
   return null
-}) 
+})

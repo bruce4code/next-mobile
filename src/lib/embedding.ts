@@ -1,16 +1,16 @@
 import { createHash } from 'crypto'
 import OpenAI from "openai"
+import { wrapOpenAI } from 'langsmith/wrappers/openai'
 import prisma from './prisma'
+import { LLM_CONFIG, DEFAULT_EMBEDDING_MODEL } from './llm-config'
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY || "",
-  baseURL: "https://openrouter.ai/api/v1",
-})
-
-const DEFAULT_EMBEDDING_MODEL = "qwen/qwen3-embedding-8b"
+const openai = wrapOpenAI(new OpenAI({
+  apiKey: LLM_CONFIG.apiKey,
+  baseURL: LLM_CONFIG.baseURL,
+}))
 
 function hashText(text: string): string {
-  return createHash('md5').update(text.replace(/\s+/g, '').slice(0, 500)).digest('hex')
+  return createHash('sha256').update(text.replace(/\s+/g, '')).digest('hex')
 }
 
 export async function generateEmbedding(text: string): Promise<number[]> {
@@ -98,4 +98,3 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
     throw error
   }
 }
-
