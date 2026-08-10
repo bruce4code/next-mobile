@@ -1,24 +1,52 @@
 import { NextResponse } from 'next/server';
-import prisma from '@/lib/prisma'; // 假设您的 Prisma Client 实例在这里
+import prisma from '@/lib/prisma';
+import { getUser } from '@/app/auth/server';
+import { z } from 'zod';
+
+const SaveChatSchema = z.object({
+  role: z.enum(['user', 'assistant', 'system'], { message: 'role 必须是 user / assistant / system' }),
+  content: z.string().min(1, 'content 不能为空'),
+  model: z.string().optional(),
+  promptTokens: z.number().int().nonnegative().optional(),
+  completionTokens: z.number().int().nonnegative().optional(),
+  totalTokens: z.number().int().nonnegative().optional(),
+  conversationId: z.string().optional(),
+});
 
 export async function POST(request: Request) {
   try {
+    const authUser = await getUser()
+    if (!authUser) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 })
+    }
+
     const body = await request.json();
-    console.log(body, 'body')
-    // 假设 body 包含 { userId, role, content, model, promptTokens, completionTokens, totalTokens, conversationId }
-    // 进行必要的验证
+
+    const parsed = SaveChatSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: '请求参数校验失败', details: parsed.error.issues },
+        { status: 400 }
+      )
+    }
+
+    const {
+      role, content, model,
+      promptTokens, completionTokens, totalTokens, conversationId,
+    } = parsed.data
+
+    console.log('保存聊天记录:', { userId: authUser.id, role, model, conversationId })
 
     const newChatMessage = await prisma.openRouterChat.create({
       data: {
-        userId: body.userId, // 或者从会话中获取 authUserId
-        role: body.role,
-        content: body.content,
-        model: body.model,
-        promptTokens: body.promptTokens,
-        completionTokens: body.completionTokens,
-        totalTokens: body.totalTokens,
-        conversationId: body.conversationId, // 新增字段
-        // authUserId: 'supabase-user-id' // 如果您使用 Supabase Auth ID
+        userId: authUser.id,
+        role,
+        content,
+        model,
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        conversationId,
       },
     });
 

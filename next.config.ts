@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  serverExternalPackages: ['nodejieba'],
   // 移除 i18n 配置
   
   // 静态资源缓存配置

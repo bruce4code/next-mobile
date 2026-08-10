@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client'
 import prisma from './prisma'
-import { generateEmbedding } from './embedding'
+import { generateEmbedding, generateEmbeddings } from './embedding'
 import * as jieba from 'nodejieba'
 import { chunkDocument } from './chunking'
 
@@ -22,7 +22,7 @@ const STOP_WORDS = new Set([
 ])
 
 // 使用 nodejieba 的 TF-IDF 算法提取关键词
-function extractKeywords(text: string): string[] {
+export function extractKeywords(text: string): string[] {
   const keywords = jieba.extract(text, 5)
   return keywords
     .map(k => k.word)
@@ -234,17 +234,30 @@ export async function addDocument(
     const chunks = await chunkDocument(title, content, contentType)
     console.log(`📦 文档 "${title}" 分为 ${chunks.length} 块`)
 
-    for (const chunk of chunks) {
-      try {
-        const chunkEmbedding = await generateEmbedding(chunk.title + '\n' + chunk.content)
-        const embeddingString = `[${chunkEmbedding.join(',')}]`
-        await prisma.$executeRaw`
-          INSERT INTO "DocumentChunk" ("id", "documentId", "title", "content", "chunkIndex", "embedding", "createdAt")
-          VALUES (${crypto.randomUUID()}, ${doc.id}, ${chunk.title}, ${chunk.content}, ${chunk.index}, ${embeddingString}::vector, NOW())
-        `
-      } catch (chunkError) {
-        console.warn(`⚠️ 分块 ${chunk.index} 生成失败，跳过:`, chunkError)
-      }
+    try {
+      const chunkTexts = chunks.map(chunk => chunk.title + '\n' + chunk.content)
+      const chunkEmbeddings = await generateEmbeddings(chunkTexts)
+      
+      console.log(`⚡ [事务开始] 准备插入 ${chunks.length} 个 DocumentChunk...`)
+      const startTime = Date.now()
+      
+      await prisma.$transaction(
+        chunks.map((chunk, i) => {
+          const embeddingString = `[${chunkEmbeddings[i].join(',')}]`
+          return prisma.$executeRaw`
+            INSERT INTO "DocumentChunk" ("id", "documentId", "title", "content", "chunkIndex", "embedding", "createdAt")
+            VALUES (${crypto.randomUUID()}, ${doc.id}, ${chunk.title}, ${chunk.content}, ${chunk.index}, ${embeddingString}::vector, NOW())
+          `
+        })
+      )
+      
+      const endTime = Date.now()
+      console.log(`✅ [事务结束] ${chunks.length} 个 DocumentChunk 插入成功，耗时 ${endTime - startTime}ms`)
+    } catch (chunkError) {
+      console.warn(
+        `⚠️ 文档 "${title}" 的 ${chunks.length} 个 DocumentChunk 插入失败，事务已自动回滚，不会产生脏数据。`
+      )
+      console.warn(`   错误详情:`, chunkError)
     }
     console.log(`✅ 文档 "${title}" 分块完成`)
   } catch (chunkError) {

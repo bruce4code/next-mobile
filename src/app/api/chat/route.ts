@@ -1,6 +1,6 @@
 import OpenAI from "openai"
 import { getUser } from '@/app/auth/server'
-import { searchSimilarDocuments, buildRAGContext } from '@/lib/rag'
+import { searchSimilarDocuments, buildRAGContext, extractKeywords } from '@/lib/rag'
 
 // 初始化 OpenRouter 客户端
 const openai = new OpenAI({
@@ -135,7 +135,11 @@ export async function POST(req: Request) {
       if (lastUserMessage?.content) {
         console.log('🧠 使用 RAG 搜索相关文档, 查询:', lastUserMessage.content.substring(0, 100) + '...')
         
-        try {
+        // 闲聊/问候语检测：无有效关键词时跳过 RAG
+        const keywords = extractKeywords(lastUserMessage.content)
+        console.log('  - 提取到的关键词:', keywords)
+        if (keywords.length > 0) {
+          try {
           const similarDocs = await searchSimilarDocuments(
             lastUserMessage.content,
             { topK: 5 }
@@ -173,6 +177,7 @@ export async function POST(req: Request) {
           }
         } catch (searchError) {
           console.warn('⚠️ RAG 搜索出错（可能是网络问题），跳过 RAG:', searchError)
+        }
         }
       }
     } catch (ragError) {

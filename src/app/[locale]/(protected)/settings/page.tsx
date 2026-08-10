@@ -1,5 +1,4 @@
-"use client"
-
+import type { Metadata } from 'next'
 import React from "react"
 import {
   Card,
@@ -12,6 +11,11 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
+
+export const metadata: Metadata = {
+  title: '设置',
+  description: '管理 AI Chat 的应用设置、隐私和账户',
+}
 
 export default function SettingsPage() {
   return (
