@@ -7,6 +7,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// pgvector 扩展支持
+model Document {
+  id          String   @id @default(uuid())
+  userId      String?
+  title       String
+  content     String
+  contentType String   @default("text") // text, markdown, pdf
+  category    String?  // product, faq, policy, order, promotion, review
+  metadata    Json?    // 额外的元数据
+  embedding   Unsupported("vector(1536)")?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([category])
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
@@ -16,6 +33,31 @@ model User {
   location  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model DocumentChunk {
+  id          String   @id @default(uuid())
+  documentId  String
+  title       String   // 层级标题，如 "退换货政策 > 邮费说明"
+  content     String   // 分块内容
+  chunkIndex  Int      // 块序号（文档内排序）
+  embedding   Unsupported("vector(1536)")?
+  createdAt   DateTime @default(now())
+
+  @@index([documentId])
+  @@index([embedding])
+}
+
+model EmbeddingCache {
+  id        String   @id @default(uuid())
+  textHash  String   // 文本的 MD5 哈希，用于快速查找
+  text      String   // 原文（便于调试）
+  embedding Unsupported("vector(1536)")
+  model     String   // 生成时使用的模型名
+  createdAt DateTime @default(now())
+
+  @@unique([textHash, model])
+  @@index([textHash])
 }
 
 model OpenRouterChat {

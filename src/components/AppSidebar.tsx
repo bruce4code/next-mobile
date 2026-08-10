@@ -1,6 +1,6 @@
 "use client"
 
-import { Calendar, Home, Inbox, Plus, MessageSquare, Settings, User, Menu, X } from "lucide-react"
+import { Calendar, Home, Inbox, Plus, MessageSquare, Settings, User, Menu, X, BookOpen } from "lucide-react"
 import { useEffect, useState } from "react"
 import Link from 'next/link'
 import { useParams, usePathname } from 'next/navigation'
@@ -14,6 +14,11 @@ const staticItems = [
     title: "新对话",
     path: "/chat",
     icon: Plus,
+  },
+  {
+    title: "知识库",
+    path: "/knowledge",
+    icon: BookOpen,
   },
   {
     title: "个人资料",

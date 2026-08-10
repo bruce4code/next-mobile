@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server"
 import prisma from "@/lib/prisma"
 import { getUser } from "@/app/auth/server"
+import { z } from 'zod'
+
+const UpdateProfileSchema = z.object({
+  name: z.string().max(100, '姓名不超过 100 个字符').optional(),
+  bio: z.string().max(500, '个人简介不超过 500 个字符').optional(),
+  avatarUrl: z.string().url('头像链接格式不正确').or(z.literal('')).optional(),
+  location: z.string().max(200, '位置不超过 200 个字符').optional(),
+})
 
 export async function GET(req: Request) {
   try {
@@ -54,7 +62,16 @@ export async function PUT(req: Request) {
     }
 
     const body = await req.json()
-    const { name, bio, avatarUrl, location } = body
+
+    const parsed = UpdateProfileSchema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: '请求参数校验失败', details: parsed.error.issues },
+        { status: 400 }
+      )
+    }
+
+    const { name, bio, avatarUrl, location } = parsed.data
 
     const updatedUser = await prisma.user.update({
       where: { id: user.id },
