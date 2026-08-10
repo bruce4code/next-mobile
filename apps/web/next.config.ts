@@ -1,4 +1,8 @@
-import type { NextConfig } from "next";
+import { config as loadEnvironment } from "dotenv"
+import type { NextConfig } from "next"
+
+// Keep the existing root-level local environment file working during the move.
+loadEnvironment({ path: "../../.env", quiet: true })
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ['@node-rs/jieba'],
