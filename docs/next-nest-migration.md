@@ -173,16 +173,57 @@ Changes:
 - Uses the legacy model default and eight-second timeout.
 - Retains deterministic fused ordering for missing credentials, provider failures, invalid responses, and timeouts.
 
-## Next Slice: Database-Backed Retrieval
+### 10. Shadow Comparison Operations
 
-Objective: make NestJS produce the same user-scoped hybrid retrieval results as the existing Next.js implementation while Next continues to own LLM streaming and browser-facing SSE.
+- Branch: `codex/retrieval-shadow-mode`
+- Status: completed
 
-Planned work:
+Changes:
 
-1. Add keyword search, RRF fusion, and reranking behind the Nest retrieval service.
-3. Have Next call Nest behind a disabled-by-default feature flag.
-4. Add sampled parity logging for legacy and Nest retrieval responses.
-5. Enable the flag only after retrieval, citation, latency, and error-rate checks meet the agreed threshold.
+- Added disabled-by-default Next-to-Nest retrieval shadow requests with authenticated token forwarding and document-overlap logging.
+- Added the admin-only `/{locale}/admin/rag-shadow` operational status page, gated by `ADMIN_EMAILS`.
+- Aligned web Prisma dependencies and initialized i18n from the SSR resource snapshot to prevent runtime and hydration failures.
+
+### 11. Controlled Retrieval Cutover
+
+- Branch: `codex/nest-monorepo-migration`
+- Status: implemented, pending internal-user runtime verification
+
+Changes:
+
+- Added `RAG_BACKEND=legacy|shadow|nest` selection to the Next chat route.
+- Used Nest's context and citations only for `nest`, with a bounded timeout and per-request legacy fallback.
+- Gated `nest` traffic to `ADMIN_EMAILS` and `RAG_NEST_INTERNAL_USER_IDS`.
+- Persisted shadow comparisons in `RagShadowComparison` and surfaced them in the admin monitor.
+
+See `docs/specs/002-nest-retrieval-cutover.md` for the full spec and verification record.
+
+### 12. Ingestion Processor Parallel Build
+
+- Branch: `codex/nest-monorepo-migration`
+- Status: built and statically verified; not yet cut over
+
+Objective: rebuild the ingestion job processor in NestJS alongside the Next implementation, matching existing behavior byte-for-byte, without switching any runtime traffic.
+
+Changes:
+
+- Added `apps/api/src/ingestion/`: `chunking.ts` (langchain splitters, ported unchanged), `embedding.service.ts` (`EmbeddingCache`-backed embedding generation), `ingestion.service.ts` (stale-lock recovery, `FOR UPDATE SKIP LOCKED` claim, version-guarded chunk/embed transaction, exponential retry backoff), and a worker-secret-guarded `POST /api/ingestion/process`.
+- Reused the existing `ProcessIngestionRequestSchema` contract; no schema or Next changes.
+- Added `@langchain/textsplitters` to the api package.
+
+Scope boundary:
+
+- Document enqueue (`enqueueDocumentIngestion`/`enqueueDocumentReindex`), the `documents` CRUD, and Supabase source archiving remain in Next because they are bound to the browser session.
+- Next remains the sole active ingestion processor. No feature flag ships in this slice.
+
+Verification:
+
+- `@ai-arg/contracts` and `@ai-arg/api` build successfully and `tsc --noEmit` passes under Node `22.23.0`; the `IngestionModule` resolves under Nest DI.
+- Runtime parity (identical chunk count, `chunkingVersion`/`parserVersion`/`embeddingModel`, and chunk offsets/headings between the Next and Nest processors) remains pending a real database.
+
+## Next Slice: Ingestion Cutover
+
+Objective: allow the ingestion worker to drive Nest processing behind a flag, then retire the Next processor once parity holds. LLM streaming migration follows the ingestion cutover.
 
 ## Operational Checklist
 

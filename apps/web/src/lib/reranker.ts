@@ -22,6 +22,11 @@ interface RerankCandidate {
   similarity: number
 }
 
+export interface RerankResult<T> {
+  documents: T[]
+  applied: boolean
+}
+
 const DEFAULT_MODEL = DEFAULT_RERANKER_MODEL
 
 const openai = wrapOpenAI(new OpenAI({
@@ -163,6 +168,14 @@ export async function rerankResults<T extends RerankCandidate>(
   candidates: T[],
   options: RerankerOptions = {},
 ): Promise<T[]> {
+  return (await rerankResultsWithStatus(query, candidates, options)).documents
+}
+
+export async function rerankResultsWithStatus<T extends RerankCandidate>(
+  query: string,
+  candidates: T[],
+  options: RerankerOptions = {},
+): Promise<RerankResult<T>> {
   const {
     topK = 5,
     model = DEFAULT_MODEL,
@@ -170,10 +183,7 @@ export async function rerankResults<T extends RerankCandidate>(
     fallbackModel = DEFAULT_LLM_RERANKER_MODEL,
   } = options
 
-  // 候选数 <= 目标数，不需要重排序
-  if (candidates.length <= topK) {
-    return candidates.slice(0, topK)
-  }
+  if (candidates.length === 0) return { documents: [], applied: false }
 
   logger.info('RAG.Reranker.Start', { candidates: candidates.length, topK, model, provider })
 
@@ -201,9 +211,9 @@ export async function rerankResults<T extends RerankCandidate>(
       })),
     })
 
-    return final
+    return { documents: final, applied: true }
   } catch (error) {
     logger.error('RAG.Reranker.Error', { error: String(error) })
-    return candidates.slice(0, topK)
+    return { documents: candidates.slice(0, topK), applied: false }
   }
 }

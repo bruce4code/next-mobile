@@ -38,3 +38,14 @@ export async function getUser() {
 
   return userObject.data.user;
 }
+
+export async function getAccessToken() {
+  const client = await createClient();
+  const { data, error } = await client.auth.getSession();
+  if (error) {
+    console.error(error);
+    return null;
+  }
+
+  return data.session?.access_token ?? null;
+}

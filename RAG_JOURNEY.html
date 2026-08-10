@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>从零到1：构建一个完整的知识库 RAG 系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            line-height: 1.8;
+            color: #333;
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            background-color: #fff;
+            padding: 40px 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        h1 {
+            font-size: 28px;
+            font-weight: 800;
+            color: #1a1a1a;
+            margin-bottom: 30px;
+            text-align: center;
+            line-height: 1.4;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #0066ff;
+        }
+        
+        h2 {
+            font-size: 22px;
+            font-weight: 700;
+            color: #1a1a1a;
+            margin: 35px 0 20px;
+            padding-left: 12px;
+            border-left: 4px solid #0066ff;
+        }
+        
+        h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin: 25px 0 15px;
+        }
+        
+        p {
+            font-size: 16px;
+            margin-bottom: 18px;
+            text-align: justify;
+        }
+        
+        ul, ol {
+            margin: 15px 0;
+            padding-left: 25px;
+        }
+        
+        li {
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+        
+        strong {
+            color: #0066ff;
+            font-weight: 600;
+        }
+        
+        code {
+            background-color: #f6f8fa;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            color: #e83e8c;
+        }
+        
+        pre {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 20px 0;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        pre code {
+            background: none;
+            padding: 0;
+            color: inherit;
+            font-size: 14px;
+        }
+        
+        .tip-box {
+            background-color: #e7f3ff;
+            border-left: 4px solid #0066ff;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .warning-box {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .success-box {
+            background-color: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .highlight {
+            background: linear-gradient(120deg, #fff9c4 0%, #fff9c4 100%);
+            background-repeat: no-repeat;
+            background-size: 100% 40%;
+            background-position: 0 90%;
+        }
+        
+        .emoji {
+            font-size: 20px;
+            margin-right: 5px;
+        }
+        
+        .divider {
+            height: 1px;
+            background: linear-gradient(to right, transparent, #ddd, transparent);
+            margin: 30px 0;
+        }
+        
+        .step-number {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            background-color: #0066ff;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        blockquote {
+            border-left: 4px solid #0066ff;
+            padding-left: 20px;
+            margin: 20px 0;
+            color: #666;
+            font-style: italic;
+        }
+        
+        .tech-stack {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        
+        .tech-tag {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            color: #999;
+            font-size: 14px;
+        }
+        
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;
+            }
+            
+            .container {
+                padding: 25px 20px;
+            }
+            
+            h1 {
+                font-size: 24px;
+            }
+            
+            h2 {
+                font-size: 20px;
+            }
+            
+            p, li {
+                font-size: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 从零到1：构建一个完整的知识库 RAG 系统</h1>
+        
+        <h2>📖 背景</h2>
+        <p>作为一个电商项目的开发者，我一直在思考如何让 AI 助手能够更好地回答用户关于产品、订单、政策等方面的问题。传统的 LLM 虽然强大，但缺乏最新的、特定的业务知识。</p>
+        <p><span class="highlight">RAG（检索增强生成）</span>技术正好解决了这个问题——它可以让 AI 基于我们自己的知识库来回答问题。</p>
+        <p>在这篇文章中，我将分享从零到1构建一个完整知识库 RAG 系统的全过程，包括遇到的坑和解决方案。</p>
+        
+        <div class="divider"></div>
+        
+        <h2>🛠️ 技术选型</h2>
+        <p>2026 年的今天，RAG 技术已经非常成熟。经过调研，我选择了以下技术栈：</p>
+        <div class="tech-stack">
+            <span class="tech-tag">Supabase PostgreSQL</span>
+            <span class="tech-tag">pgvector</span>
+            <span class="tech-tag">OpenRouter</span>
+            <span class="tech-tag">Qwen Embedding</span>
+            <span class="tech-tag">Prisma</span>
+            <span class="tech-tag">Next.js</span>
+        </div>
+        <ul>
+            <li><strong>向量数据库</strong>：Supabase PostgreSQL + pgvector（成熟、稳定、易于集成）</li>
+            <li><strong>Embedding 模型</strong>：OpenRouter + Qwen/Qwen3-Embedding-8B（性价比高、支持中文）</li>
+            <li><strong>ORM</strong>：Prisma（类型安全、开发体验好）</li>
+            <li><strong>Web 框架</strong>：Next.js App Router（全栈能力强）</li>
+        </ul>
+        
+        <div class="divider"></div>
+        
+        <h2><span class="step-number">1</span> 数据库设计</h2>
+        <p>首先，我需要设计一个存储文档和向量的数据库表。</p>
+        
+        <h3>📋 Prisma Schema</h3>
+        <pre><code>model Document {
+  id          String   @id @default(uuid())
+  userId      String?
+  title       String
+  content     String
+  contentType String   @default("text")
+  category    String?  // product, faq, policy, order, promotion, review
+  metadata    Json?
+  embedding   Unsupported("vector(1536)")?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([category])
+}</code></pre>
+        
+        <h3>🔄 数据库迁移</h3>
+        <p>接下来是数据库迁移，这一步遇到了第一个坑：</p>
+        
+        <div class="warning-box">
+            <strong>⚠️ 问题：</strong>直接运行迁移会报错 "type vector does not exist"
+        </div>
+        
+        <div class="success-box">
+            <strong>✅ 解决方案：</strong>必须先启用 pgvector 扩展，再创建表
+        </div>
+        
+        <pre><code>-- 第一步：启用 pgvector 扩展
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- 第二步：创建 Document 表
+CREATE TABLE "Document" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT,
+    "title" TEXT NOT NULL,
+    "content" TEXT NOT NULL,
+    "contentType" TEXT NOT NULL DEFAULT 'text',
+    "category" TEXT,
+    "metadata" JSONB,
+    "embedding" vector(1536),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Document_pkey" PRIMARY KEY ("id")
+);
+
+-- 第三步：创建 HNSW 索引加速搜索
+CREATE INDEX documents_embedding_hnsw_idx 
+ON "Document" 
+USING hnsw (embedding vector_cosine_ops) 
+WITH (m = 16, ef_construction = 64);</code></pre>
+        
+        <div class="divider"></div>
+        
+        <h2><span class="step-number">2</span> Embedding 生成</h2>
+        <p>有了数据库，接下来需要实现 embedding 生成功能。</p>
+        
+        <h3>🧩 Embedding 模块</h3>
+        <pre><code>import OpenAI from "openai"
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENROUTER_API_KEY || "",
+  baseURL: "https://openrouter.ai/api/v1",
+})
+
+const DEFAULT_EMBEDDING_MODEL = "qwen/qwen3-embedding-8b"
+
+export async function generateEmbedding(text: string): Promise<number[]> {
+  try {
+    const modelToUse = process.env.EMBEDDING_MODEL || DEFAULT_EMBEDDING_MODEL
+    console.log('正在调用的 embedding 模型:', modelToUse)
+    
+    const response = await openai.embeddings.create({
+      model: modelToUse,
+      input: text,
+      dimensions: 1536,
+    })
+
+    const embedding = response.data[0].embedding
+    console.log('Embedding 生成成功, 维度:', embedding.length)
+    return embedding
+  } catch (error) {
+    console.error('生成 embedding 失败:', error)
+    console.warn('使用随机 embedding 作为备用方案')
+    return generateRandomEmbedding()
+  }
+}
+
+function generateRandomEmbedding(): number[] {
+  const embedding: number[] = []
+  for (let i = 0; i < 1536; i++) {
+    embedding.push((Math.random() - 0.5) * 2)
+  }
+  return embedding
+}</code></pre>
+        
+        <div class="tip-box">
+            <strong>💡 遇到的坑：</strong>
+            <ol>
+                <li><strong>模型选择</strong>：一开始用 <code>qwen/qwen3-embedding-0.6b</code> 返回 404，后来换成 <code>qwen/qwen3-embedding-8b</code> 才正常</li>
+                <li><strong>维度问题</strong>：模型默认返回 4096 维，但数据库是 1536 维，需要添加 <code>dimensions: 1536</code> 参数</li>
+            </ol>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <h2><span class="step-number">3</span> 向量搜索</h2>
+        <p>这是最核心的部分，也是坑最多的地方。</p>
+        
+        <h3>🔍 RAG 搜索模块</h3>
+        <pre><code>export async function searchSimilarDocuments(
+  query: string,
+  options: SearchOptions = {}
+): Promise<DocumentResult[]> {
+  try {
+    const { topK = 5, category } = options
+
+    console.log('RAG 搜索开始, 查询:', query)
+    
+    let queryEmbedding: number[]
+    try {
+      queryEmbedding = await generateEmbedding(query)
+    } catch (embeddingError) {
+      console.warn('无法生成查询 embedding，尝试文本搜索:', embeddingError)
+      return await searchByText(query, options)
+    }
+
+    const queryEmbeddingString = `[${queryEmbedding.join(',')}]`
+    let results: any[]
+    
+    if (category) {
+      results = await prisma.$queryRaw`
+        SELECT 
+          id,
+          title,
+          content,
+          "contentType",
+          category,
+          metadata,
+          "createdAt",
+          1 - (embedding <=> ${queryEmbeddingString}::vector) as similarity
+        FROM "Document"
+        WHERE embedding IS NOT NULL
+        AND category = ${category}
+        ORDER BY embedding <=> ${queryEmbeddingString}::vector
+        LIMIT ${topK}
+      `
+    } else {
+      results = await prisma.$queryRaw`
+        SELECT 
+          id,
+          title,
+          content,
+          "contentType",
+          category,
+          metadata,
+          "createdAt",
+          1 - (embedding <=> ${queryEmbeddingString}::vector) as similarity
+        FROM "Document"
+        WHERE embedding IS NOT NULL
+        ORDER BY embedding <=> ${queryEmbeddingString}::vector
+        LIMIT ${topK}
+      `
+    }
+
+    console.log('RAG 搜索结果数量:', (results as any[]).length)
+    return results as DocumentResult[]
+  } catch (error) {
+    console.error('RAG 搜索失败，尝试文本搜索:', error)
+    return await searchByText(query, options)
+  }
+}</code></pre>
+        
+        <div class="warning-box">
+            <strong>💥 遇到的大坑：</strong>
+            <p><strong>问题：</strong>Prisma 的 <code>$queryRaw</code> 中直接传入 embedding 数组会报错 "column embedding is of type vector but expression is of type text[]"</p>
+        </div>
+        
+        <div class="success-box">
+            <strong>✅ 解决方案：</strong>
+            <p>必须先将 embedding 数组转换为字符串格式 <code>[1.0, 2.0, ...]</code>，然后用 <code>::vector</code> 转换</p>
+            <pre><code>const queryEmbeddingString = `[${queryEmbedding.join(',')}]`
+// 然后在 SQL 中使用: ${queryEmbeddingString}::vector</code></pre>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <h2><span class="step-number">4</span> 文档管理 API</h2>
+        <p>接下来是文档的 CRUD API。</p>
+        
+        <h3>📝 添加文档</h3>
+        <pre><code>export async function POST(req: NextRequest) {
+  try {
+    const user = await getUser()
+    if (!user) {
+      return NextResponse.json({ error: '未登录' }, { status: 401 })
+    }
+
+    const body = await req.json()
+    console.log('接收到的请求体:', body)
+
+    const { title, content, contentType, category } = body
+    const docId = crypto.randomUUID()
+    const now = new Date()
+
+    let embedding: number[] | null = null
+    try {
+      console.log('开始生成 embedding...')
+      embedding = await generateEmbedding(content)
+      console.log('Embedding 生成成功, 长度:', embedding.length)
+    } catch (embeddingError) {
+      console.warn('生成 embedding 失败，将不保存 embedding:', embeddingError)
+    }
+
+    if (embedding) {
+      const embeddingString = `[${embedding.join(',')}]`
+      await prisma.$executeRaw`
+        INSERT INTO "Document" (
+          "id", "title", "content", "contentType", "category", 
+          "userId", "embedding", "createdAt", "updatedAt"
+        ) VALUES (
+          ${docId}, ${title}, ${content}, ${contentType || 'text'}, ${category},
+          ${user.id}, ${embeddingString}::vector, ${now}, ${now}
+        )
+      `
+    } else {
+      await prisma.$executeRaw`
+        INSERT INTO "Document" (
+          "id", "title", "content", "contentType", "category", 
+          "userId", "createdAt", "updatedAt"
+        ) VALUES (
+          ${docId}, ${title}, ${content}, ${contentType || 'text'}, ${category},
+          ${user.id}, ${now}, ${now}
+        )
+      `
+    }
+
+    const result = await prisma.document.findUnique({
+      where: { id: docId }
+    })
+
+    console.log('文档创建成功:', result?.id)
+    return NextResponse.json(result)
+  } catch (error) {
+    console.error('添加文档失败:', error)
+    return NextResponse.json({ error: '添加文档失败', details: String(error) }, { status: 500 })
+  }
+}</code></pre>
+        
+        <div class="divider"></div>
+        
+        <h2><span class="step-number">5</span> 知识库管理 UI</h2>
+        <p>有了 API，接下来需要一个用户友好的界面来管理知识库。</p>
+        <p>我实现了一个完整的知识库管理页面，包括：</p>
+        <ul>
+            <li>✅ 列表/卡片视图切换</li>
+            <li>✅ 搜索和分类筛选</li>
+            <li>✅ 添加、编辑、删除文档</li>
+            <li>✅ 预览文档内容</li>
+        </ul>
+        
+        <div class="divider"></div>
+        
+        <h2><span class="step-number">6</span> 集成到聊天系统</h2>
+        <p>最后一步，将 RAG 集成到现有的聊天系统中。</p>
+        
+        <h3>🎯 构建 RAG 上下文</h3>
+        <pre><code>export function buildRAGContext(documents: Array<{ title: string; content: string; similarity?: number }>) {
+  if (documents.length === 0) {
+    return ''
+  }
+
+  const context = documents
+    .map((doc, index) => {
+      let docInfo = `[文档 ${index + 1}: ${doc.title}]`
+      if (doc.similarity !== undefined) {
+        docInfo += ` (相似度: ${(doc.similarity * 100).toFixed(1)}%)`
+      }
+      return `${docInfo}\n${doc.content}`
+    })
+    .join('\n\n')
+
+  return \`【重要指令】你必须优先使用以下知识库中的信息来回答用户的问题！
+
+【知识库参考资料】
+\${context}
+
+【强制回答规则】
+1. 🔴 必须首先尝试使用知识库中的信息回答
+2. 🟢 如果知识库中有相关内容，必须基于知识库内容回答
+3. 🟡 只有当知识库中完全没有相关信息时，才使用你自己的知识
+4. 📝 回答要明确引用知识库中的内容
+5. ✅ 保持回答准确、简洁、有帮助
+
+【用户的问题】请基于以上知识库回答：\`
+}</code></pre>
+        
+        <div class="divider"></div>
+        
+        <h2>🔄 完整的工作流程</h2>
+        <ol>
+            <li>用户发送问题</li>
+            <li>系统提取用户消息</li>
+            <li>生成查询 embedding</li>
+            <li>在向量数据库中搜索最相似的 K 个文档</li>
+            <li>将相关文档构建为上下文</li>
+            <li>将上下文 + 用户问题一起发送给 LLM</li>
+            <li>LLM 基于参考资料回答</li>
+        </ol>
+        
+        <div class="divider"></div>
+        
+        <h2>🎉 最终效果</h2>
+        <p>从终端日志可以看到，系统运行得非常完美：</p>
+        
+        <pre><code>Embedding 生成成功, 维度: 1536
+RAG 搜索结果数量: 2
+✅ 找到 2 个相关文档:
+  1. 订单查询 (相似度: 59.3%)
+  2. 产品信息 (相似度: 42.9%)
+📚 RAG 上下文已添加到对话中</code></pre>
+        
+        <div class="success-box">
+            <strong>🎊 AI 助手能够准确地基于知识库内容回答用户的问题了！</strong>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <h2>📝 总结与心得</h2>
+        
+        <h3>💥 遇到的主要问题</h3>
+        <ol>
+            <li><strong>pgvector 扩展</strong>：必须先启用扩展才能创建 vector 类型的列</li>
+            <li><strong>Prisma 类型转换</strong>：embedding 数组需要先转换为字符串格式才能在 SQL 中使用</li>
+            <li><strong>模型维度</strong>：注意模型返回的维度要与数据库定义一致</li>
+            <li><strong>模型可用性</strong>：某些模型在 OpenRouter 上可能不可用，需要有备选方案</li>
+        </ol>
+        
+        <h3>🔑 关键技术点</h3>
+        <ol>
+            <li><strong>HNSW 索引</strong>：使用 HNSW 索引可以大幅提升向量搜索速度</li>
+            <li><strong>余弦相似度</strong>：使用 <code><=></code> 操作符计算余弦相似度</li>
+            <li><strong>备用方案</strong>：当向量搜索失败时，回退到文本搜索</li>
+            <li><strong>随机 embedding</strong>：当 API 调用失败时，使用随机 embedding 作为临时方案</li>
+        </ol>
+        
+        <h3>🚀 下一步计划</h3>
+        <ul>
+            <li>⬜ 支持 PDF/Markdown 文件上传</li>
+            <li>⬜ 实现文档分块（chunking）</li>
+            <li>⬜ 添加 RAG 调试/可视化界面</li>
+            <li>⬜ 优化 embedding 缓存</li>
+            <li>⬜ 添加混合搜索（关键词 + 向量）</li>
+            <li>⬜ 文档版本控制</li>
+            <li>⬜ AI 自动整理和总结知识库</li>
+        </ul>
+        
+        <div class="divider"></div>
+        
+        <h2>💌 结语</h2>
+        <p>从零到1构建一个完整的 RAG 系统虽然遇到了不少坑，但整个过程非常有收获。现在，我的电商 AI 助手可以基于真实的知识库内容回答用户问题了，这大大提升了用户体验。</p>
+        <p>希望这篇文章能对你有所帮助！如果你也在构建 RAG 系统，欢迎交流心得。</p>
+        
+        <div class="footer">
+            <p>📌 本文原创，欢迎转发分享</p>
+            <p>💬 有问题欢迎在评论区交流</p>
+        </div>
+    </div>
+</body>
+</html>
