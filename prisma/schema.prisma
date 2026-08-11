@@ -7,21 +7,57 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum DocumentStatus {
+  QUEUED
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum IngestionJobStatus {
+  QUEUED
+  PROCESSING
+  RETRY
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum IngestionOperation {
+  INDEX
+  REINDEX
+}
+
 // pgvector 扩展支持
 model Document {
-  id          String   @id @default(uuid())
-  userId      String?
-  title       String
-  content     String
-  contentType String   @default("text") // text, markdown, pdf
-  category    String?  // product, faq, policy, order, promotion, review
-  metadata    Json?    // 额外的元数据
-  embedding   Unsupported("vector(1536)")?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String                       @id @default(uuid())
+  userId          String?
+  title           String
+  content         String
+  contentType     String                       @default("text") // text, markdown, pdf
+  category        String? // product, faq, policy, order, promotion, review
+  metadata        Json? // 额外的元数据
+  embedding       Unsupported("vector(1536)")?
+  status          DocumentStatus               @default(QUEUED)
+  sourceType      String                       @default("inline")
+  sourceName      String?
+  sourceUri       String?
+  sourceChecksum  String?
+  version         Int                          @default(1)
+  parserVersion   String?
+  chunkingVersion String?
+  embeddingModel  String?
+  lastIndexedAt   DateTime?
+  ingestionError  String?
+  createdAt       DateTime                     @default(now())
+  updatedAt       DateTime                     @updatedAt
+
+  chunks        DocumentChunk[]
+  ingestionJobs IngestionJob[]
 
   @@index([userId])
   @@index([category])
+  @@index([userId, status])
 }
 
 model User {
@@ -36,25 +72,59 @@ model User {
 }
 
 model DocumentChunk {
-  id          String   @id @default(uuid())
-  documentId  String
-  title       String   // 层级标题，如 "退换货政策 > 邮费说明"
-  content     String   // 分块内容
-  chunkIndex  Int      // 块序号（文档内排序）
-  embedding   Unsupported("vector(1536)")?
-  createdAt   DateTime @default(now())
+  id            String                       @id @default(uuid())
+  documentId    String
+  title         String // 层级标题，如 "退换货政策 > 邮费说明"
+  content       String // 分块内容
+  chunkIndex    Int // 块序号（文档内排序）
+  heading       String?
+  startOffset   Int?
+  endOffset     Int?
+  sourceVersion Int                          @default(1)
+  metadata      Json?
+  embedding     Unsupported("vector(1536)")?
+  createdAt     DateTime                     @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@index([documentId])
+  @@index([documentId, sourceVersion])
   @@index([embedding])
 }
 
+model IngestionJob {
+  id              String             @id @default(uuid())
+  documentId      String
+  userId          String
+  documentVersion Int
+  operation       IngestionOperation @default(INDEX)
+  status          IngestionJobStatus @default(QUEUED)
+  attempt         Int                @default(0)
+  maxAttempts     Int                @default(3)
+  idempotencyKey  String
+  error           String?
+  lockedAt        DateTime?
+  availableAt     DateTime           @default(now())
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, idempotencyKey])
+  @@index([status, availableAt])
+  @@index([documentId, documentVersion])
+  @@index([userId, createdAt])
+}
+
 model EmbeddingCache {
-  id        String   @id @default(uuid())
-  textHash  String   // 文本的 MD5 哈希，用于快速查找
-  text      String   // 原文（便于调试）
+  id        String                      @id @default(uuid())
+  textHash  String // 文本的 SHA-256 哈希，用于快速查找
+  text      String // 原文（便于调试）
   embedding Unsupported("vector(1536)")
-  model     String   // 生成时使用的模型名
-  createdAt DateTime @default(now())
+  model     String // 生成时使用的模型名
+  createdAt DateTime                    @default(now())
 
   @@unique([textHash, model])
   @@index([textHash])
@@ -63,13 +133,35 @@ model EmbeddingCache {
 model OpenRouterChat {
   id               String   @id @default(cuid())
   userId           String
-  conversationId   String   // 新增字段，用于区分不同的对话
+  conversationId   String // 新增字段，用于区分不同的对话
   role             String
   content          String
   model            String?
   promptTokens     Int?
   completionTokens Int?
   totalTokens      Int?
+  metadata         Json?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+
+  @@index([conversationId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model RagShadowComparison {
+  id                String   @id @default(cuid())
+  userId            String
+  queryHash         String
+  legacyDocumentIds Json
+  nestDocumentIds   Json
+  legacyCount       Int
+  nestCount         Int
+  overlap           Int
+  latencyMs         Int?
+  status            String
+  error             String?
+  createdAt         DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
 }

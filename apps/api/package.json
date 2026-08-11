@@ -1,0 +1,33 @@
+{
+  "name": "@ai-arg/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "node dist/main",
+    "start:dev": "nest start --watch",
+    "build": "nest build",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-arg/contracts": "workspace:*",
+    "@langchain/textsplitters": "^1.0.1",
+    "@node-rs/jieba": "^2.0.1",
+    "@prisma/client": "^6.8.2",
+    "@nestjs/common": "^11.1.6",
+    "@nestjs/config": "^4.0.2",
+    "@nestjs/core": "^11.1.6",
+    "@nestjs/platform-express": "^11.1.6",
+    "@supabase/supabase-js": "^2.49.9",
+    "openai": "^4.103.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "^3.25.48"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.10",
+    "@nestjs/schematics": "^11.0.7",
+    "@nestjs/testing": "^11.1.6",
+    "@types/node": "^22.15.30",
+    "typescript": "^5.9.3"
+  }
+}
