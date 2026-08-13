@@ -1,12 +1,23 @@
 import { Injectable } from "@nestjs/common"
 import { ConfigService } from "@nestjs/config"
-import type { ChatMessage, RAGCitation, RetrievedDocument, SearchRetrievalRequest } from "@ai-arg/contracts"
+import type { ChatMessage, RAGCitation, RetrievedDocument, RetrievalDecisionSummary, SearchRetrievalRequest } from "@ai-arg/contracts"
 import OpenAI from "openai"
 import { Jieba, TfIdf } from "@node-rs/jieba"
 import { dict, idf } from "@node-rs/jieba/dict"
 import { PrismaService } from "../database/prisma.service"
+import { evaluateRagDecision } from "./rag-abstention"
 
 type RetrievalRow = RetrievedDocument & { similarity: number }
+
+interface HybridSearchResult {
+  documents: RetrievedDocument[]
+  decision: RetrievalDecisionSummary
+}
+
+interface RerankResult {
+  documents: RetrievedDocument[]
+  applied: boolean
+}
 const jieba = Jieba.withDict(dict)
 const tfidf = TfIdf.withDict(idf)
 const STOP_WORDS = new Set(["的", "了", "在", "是", "我", "你", "什么", "怎么", "如何", "吗", "呢", "和", "与", "或", "查", "一下"])
@@ -58,7 +69,7 @@ export class RetrievalService {
       .slice(0, request.topK)
   }
 
-  async hybridSearch(userId: string, request: SearchRetrievalRequest): Promise<RetrievedDocument[]> {
+  async hybridSearch(userId: string, request: SearchRetrievalRequest): Promise<HybridSearchResult> {
     const recallRequest = { ...request, topK: Math.min(request.topK * 3, 10) }
     const [vectors, keywords] = await Promise.allSettled([
       this.vectorSearch(userId, recallRequest),
@@ -84,15 +95,23 @@ export class RetrievalService {
       .sort((left, right) => right.score - left.score)
       .map(({ document }) => document)
 
-    return this.rerank(request.query, candidates, request.topK)
+    const reranked = await this.rerank(request.query, candidates, request.topK)
+    const documents = reranked.documents
+    const decision = evaluateRagDecision({
+      candidateCount: documents.length,
+      rerankerApplied: reranked.applied,
+      scores: documents.map((document) => document.similarity),
+    })
+
+    return { documents, decision }
   }
 
-  private async rerank(query: string, candidates: RetrievedDocument[], topK: number): Promise<RetrievedDocument[]> {
-    if (candidates.length <= topK) return candidates.slice(0, topK)
+  private async rerank(query: string, candidates: RetrievedDocument[], topK: number): Promise<RerankResult> {
+    if (candidates.length === 0) return { documents: [], applied: false }
 
     const baseURL = process.env.LLM_BASE_URL ?? process.env.OPENROUTER_BASE_URL ?? "https://api.siliconflow.cn/v1"
     const apiKey = process.env.SILICONFLOW_API_KEY ?? process.env.OPENROUTER_API_KEY
-    if (!apiKey) return candidates.slice(0, topK)
+    if (!apiKey) return { documents: candidates.slice(0, topK), applied: false }
 
     try {
       const response = await fetch(`${baseURL.replace(/\/$/, "")}/rerank`, {
@@ -110,17 +129,20 @@ export class RetrievalService {
         }),
         signal: AbortSignal.timeout(8_000),
       })
-      if (!response.ok) return candidates.slice(0, topK)
+      if (!response.ok) return { documents: candidates.slice(0, topK), applied: false }
 
       const payload = await response.json() as { results?: Array<{ index: number; relevance_score: number }> }
-      if (!payload.results?.length) return candidates.slice(0, topK)
-      return payload.results
-        .filter((result) => candidates[result.index])
-        .sort((left, right) => right.relevance_score - left.relevance_score)
-        .map((result) => ({ ...candidates[result.index], similarity: result.relevance_score }))
-        .slice(0, topK)
+      if (!payload.results?.length) return { documents: candidates.slice(0, topK), applied: false }
+      return {
+        documents: payload.results
+          .filter((result) => candidates[result.index])
+          .sort((left, right) => right.relevance_score - left.relevance_score)
+          .map((result) => ({ ...candidates[result.index], similarity: result.relevance_score }))
+          .slice(0, topK),
+        applied: true,
+      }
     } catch {
-      return candidates.slice(0, topK)
+      return { documents: candidates.slice(0, topK), applied: false }
     }
   }
 
