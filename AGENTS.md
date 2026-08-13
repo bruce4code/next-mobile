@@ -12,6 +12,14 @@ Code is TypeScript-first; prefer `.tsx` React components with top-level `"use cl
 ## Testing Guidelines
 Automated tests are not yet wired up, so document manual verification steps in your PR. When introducing a test harness, colocate specs as `<module>.test.ts` beside the implementation and run them in CI. At minimum, ensure new logic passes `npm run lint` and validate critical flows such as authentication, chat history loading, and locale switching before submitting.
 
+## Spec-Driven Development
+Follow the spec-driven workflow in `docs/specs/README.md`. Every change that touches API contracts, authentication, streaming, background jobs, feature flags, the Prisma schema, database migrations, tenant isolation, RAG retrieval, citations, evaluation, model-provider behavior, or a workflow spanning Next.js + NestJS + shared contracts MUST carry the necessary specification update in the same change:
+
+- If a numbered spec in `docs/specs/` already covers the change, update it: keep `Status`, acceptance criteria, and the implementation record (commits, commands run, verification evidence) consistent with what was actually built. Note any parity gaps and pending verification explicitly.
+- If no spec covers a spec-worthy change, create a numbered spec from `docs/specs/TEMPLATE.md` and agree goals, non-goals, contract, acceptance criteria, and rollback before implementation.
+- For migration work, keep the chronological record in `docs/next-nest-migration.md` in sync with the affected specs.
+- Small copy, styling, and isolated component changes do not require a specification.
+
 ## Commit & Pull Request Guidelines
 Follow the existing conventional commit style (`feat(scope): concise summary`) visible in `git log`. Each PR should include: a focused summary, screenshots or GIFs for UI changes, notes on database migrations, and an explicit list of local commands run. Link relevant issues and call out any follow-up work so reviewers can plan next steps.
 
