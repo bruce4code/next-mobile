@@ -221,6 +221,27 @@ Verification:
 - `@ai-arg/contracts` and `@ai-arg/api` build successfully and `tsc --noEmit` passes under Node `22.23.0`; the `IngestionModule` resolves under Nest DI.
 - Runtime parity (identical chunk count, `chunkingVersion`/`parserVersion`/`embeddingModel`, and chunk offsets/headings between the Next and Nest processors) remains pending a real database.
 
+### 13. Nest Retrieval Abstention Decision
+
+- Branch: `codex/nest-monorepo-migration`
+- Status: implemented; pending runtime verification against a live Nest deployment
+
+Changes:
+
+- Added `RetrievalDecisionSummarySchema` (`ANSWER` | `ABSTAIN` + reason) to `@ai-arg/contracts`.
+- Ported the legacy low-confidence abstention evaluation into `apps/api/src/retrieval/rag-abstention.ts`, reading the same `RAG_ABSTAIN_MIN_RERANK_SCORE` / `RAG_ABSTAIN_MIN_SCORE_GAP` thresholds.
+- `RetrievalService.hybridSearch` now returns a `decision` alongside documents; the dedicated reranker reports `applied` status so `RERANK_UNAVAILABLE` is distinguishable from genuine low confidence.
+- `POST /api/retrieval/search` response now includes `decision`.
+- The Next chat route consumes `decision` for the `nest` backend instead of the previous crude `NO_CANDIDATES` fallback; a null-guarded fallback keeps compatibility with older Nest responses.
+
+Scope boundary:
+
+- Abstention *enforcement* (`RAG_ABSTENTION_MODE` disabled/observe/enforce and the SSE abstention response) remains in Next, which stays the browser-facing application.
+
+Rollback:
+
+- Revert this slice; `RAG_BACKEND=legacy` never calls Nest and is unaffected.
+
 ## Next Slice: Ingestion Cutover
 
 Objective: allow the ingestion worker to drive Nest processing behind a flag, then retire the Next processor once parity holds. LLM streaming migration follows the ingestion cutover.

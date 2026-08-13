@@ -19,6 +19,8 @@ The legacy Next retrieval path filters vector recall at `DEFAULT_MIN_SIMILARITY`
 
 This is not a hard refusal boundary: when no RAG context is created, `apps/web/src/app/api/chat/route.ts` continues through the normal chat-completion path. In addition, vector similarity, keyword matching scores, and reranker relevance scores have different meanings and cannot safely share one threshold. The text-search fallback currently assigns a synthetic score of `0.55`, so it must not be treated as confidence evidence.
 
+The Nest retrieval path now produces the same decision: as of slice 13, `POST /api/retrieval/search` evaluates the deterministic policy after recall, fusion, and reranking, and returns `decision` alongside `documents`, `citations`, and `context`. The Next chat route consumes it for the `nest` backend instead of the previous crude `NO_CANDIDATES` fallback. Shadow comparison does not yet record decision agreement between the two owners.
+
 ## Design
 
 ### Ownership And Flow
@@ -89,7 +91,7 @@ type RetrievalDecision =
 
 `RetrievalDiagnostics` is server-side by default and may include backend, candidate count, reranker availability, score bucket, and policy version. It must never include chunk content or raw vectors.
 
-`POST /retrieval/search` may add `decision` to its response while retaining the existing `documents`, `citations`, and `context` fields for compatibility during migration. The Next-to-Nest retrieval client must validate the new field when it is present. Until both owners support it, a missing decision is treated as `ANSWER` only if citations and non-empty context are both present; otherwise it is `ABSTAIN_NO_CANDIDATES`.
+`POST /retrieval/search` may add `decision` to its response while retaining the existing `documents`, `citations`, and `context` fields for compatibility during migration. Slice 13 implements this with the lighter `RetrievalDecisionSummarySchema` (`ANSWER` | `ABSTAIN` + reason, defined in `packages/contracts/src/chat.ts`): because the search response already carries the payload fields at the top level, only the outcome and reason ride in `decision`. The full `RetrievalDecision` schema remains available for owners that embed the fields. The Next-to-Nest retrieval client must validate the new field when it is present. Until both owners support it, a missing decision is treated as `ANSWER` only if citations and non-empty context are both present; otherwise it is `ABSTAIN_NO_CANDIDATES`.
 
 The browser-facing chat SSE metadata may add optional fields `ragDecision` and `ragAbstainReason`. Existing consumers must tolerate their absence.
 
@@ -126,19 +128,20 @@ No database migration is required for the initial policy.
 
 ## Implementation Plan
 
-1. Add shared Zod schemas/types for retrieval decisions and safe diagnostics.
-2. Extract a pure, unit-tested policy function that accepts final reranker scores and configuration.
-3. Have the legacy Next retrieval path return the decision and update the chat route to enforce it behind the feature flag.
-4. Add the same policy to Nest and extend shadow comparison to record decision agreement.
-5. Add request metrics, an evaluation fixture set, and an internal `observe` rollout.
-6. Calibrate the thresholds, enforce for an internal cohort, then expand rollout only after the acceptance gates hold.
+1. Add shared Zod schemas/types for retrieval decisions and safe diagnostics. — Done (`RetrievalDecisionSchema`, `RetrievalDecisionSummarySchema`).
+2. Extract a pure, unit-tested policy function that accepts final reranker scores and configuration. — Done in `apps/web/src/lib/rag-abstention.ts`; policy unit tests remain a gap.
+3. Have the legacy Next retrieval path return the decision and update the chat route to enforce it behind the feature flag. — Done (`812d706`, `RAG_ABSTENTION_MODE`).
+4. Add the same policy to Nest and extend shadow comparison to record decision agreement. — Partially done: Nest policy implemented in slice 13 (`apps/api/src/retrieval/rag-abstention.ts`); shadow decision-agreement recording is pending.
+5. Add request metrics, an evaluation fixture set, and an internal `observe` rollout. — Pending.
+6. Calibrate the thresholds, enforce for an internal cohort, then expand rollout only after the acceptance gates hold. — Pending.
 
 ## Implementation Record
 
 - Branch: pending
-- Commits: `812d706` (`feat(rag): enforce low-confidence abstention`)
-- Commands run: `pnpm --filter @ai-arg/contracts build`; `pnpm --filter @ai-arg/web exec eslint src/lib/rag.ts src/lib/rag-abstention.ts src/lib/reranker.ts src/app/api/chat/route.ts`; focused `tsx` policy assertions.
-- Manual verification: an authenticated local chat request with `RAG_ABSTENTION_MODE=enforce` returned the fixed abstention text for the out-of-knowledge-base query `零零落落`. The response contained no citations and bypassed the normal answer path. `observe` telemetry and external-user rollout remain pending.
+- Commits: `812d706` (`feat(rag): enforce low-confidence abstention`).
+- Nest parity (slice 13): added `RetrievalDecisionSummarySchema` to `packages/contracts/src/chat.ts`; ported the policy to `apps/api/src/retrieval/rag-abstention.ts`; `RetrievalService.hybridSearch` now returns a `decision` and the dedicated reranker reports `applied` status so `RERANK_UNAVAILABLE` is distinguishable from genuine low confidence; `POST /api/retrieval/search` includes `decision`; the Next chat route validates and consumes it for the `nest` backend. Commit pending in the working tree.
+- Commands run: `pnpm --filter @ai-arg/contracts build`; `pnpm --filter @ai-arg/web exec eslint src/lib/rag.ts src/lib/rag-abstention.ts src/lib/reranker.ts src/app/api/chat/route.ts`; `pnpm --filter @ai-arg/api build`; focused `tsx` policy assertions.
+- Manual verification: an authenticated local chat request with `RAG_ABSTENTION_MODE=enforce` returned the fixed abstention text for the out-of-knowledge-base query `零零落落`. The response contained no citations and bypassed the normal answer path. `observe` telemetry and external-user rollout remain pending. Nest-path decision verification remains pending an authenticated `RAG_BACKEND=nest` request against a running Nest instance.
 
 ## Open Questions
 
