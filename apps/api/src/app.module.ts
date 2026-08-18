@@ -2,6 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common"
 import { ConfigModule } from "@nestjs/config"
 import { AuthModule } from "./auth/auth.module"
 import { DatabaseModule } from "./database/database.module"
+import { LangSmithModule } from "./langsmith/langsmith.module"
 import { HealthController } from "./health.controller"
 import { RetrievalModule } from "./retrieval/retrieval.module"
 import { IngestionModule } from "./ingestion/ingestion.module"
@@ -20,6 +21,7 @@ import { RequestLoggerMiddleware } from "./request-logger.middleware"
     }),
     AuthModule,
     DatabaseModule,
+    LangSmithModule,
     RetrievalModule,
     IngestionModule,
     UsersModule,
