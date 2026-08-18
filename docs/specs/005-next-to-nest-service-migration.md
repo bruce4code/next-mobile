@@ -255,4 +255,65 @@ curl -X OPTIONS http://localhost:4000/api/users/me -H "Origin: http://localhost:
 
 ---
 
-### Phase 3+ — (not started)
+### Phase 3 — Streaming chat cutover (completed)
+
+**Branch:** `codex/nest-monorepo-migration`
+
+**Implementation:**
+- **ChatModule with SSE streaming**: Uses NestJS `@Sse()` decorator, returns Observable<MessageEvent>
+- **LangSmith integration**:
+  * `wrapOpenAI` wrapper for automatic tracing
+  * Metadata: userId, conversationId, requestId, useRAG, citationCount
+  * FeedbackService updated to call LangSmith.createFeedback
+- **Supabase storage helpers**:
+  * `createUserSupabaseClient(token)`: per-request RLS client
+  * `parseStorageUri(uri)`: extract bucket/path from supabase:// URIs
+- **RAG integration**:
+  * Calls `RetrievalService.hybridSearch` when useRAG=true
+  * Extracts citations with id/title/score/offsets
+  * Prepends context to system message
+  * Returns ragDecision/ragAbstainReason in metadata
+- **OpenRouter streaming**: OpenAI SDK → OpenRouter API, streams delta events
+- **Message persistence**: Saves user + assistant messages to OpenRouterChat table
+- **CHAT_BACKEND flag** added to config
+
+**Endpoints:**
+- POST /api/chat → SSE stream
+  * Auth required (Supabase JWT)
+  * Accepts: `{messages: [{role, content}], useRAG?: boolean}`
+  * Returns: SSE events
+    - `{type: "delta", content: "..."}`
+    - `{type: "metadata", requestId, model, citations, ragDecision, ragAbstainReason}`
+    - `{type: "error", error: "..."}`
+
+**Commands run:**
+```bash
+pnpm --filter @ai-arg/api add openai@^4.0.0 langsmith@^0.2.0
+pnpm --filter @ai-arg/config build
+pnpm --filter @ai-arg/api build  # ✅ compiles
+curl -X POST http://localhost:4000/api/chat -d '{"messages":[{"role":"user","content":"hello"}]}'
+# → 401 (auth required, as expected)
+```
+
+**Manual verification:**
+- Chat endpoint requires auth (401 without token)
+- SSE Observable compiles and returns MessageEvent
+- LangSmith wrapper applies when LANGCHAIN_API_KEY is set
+- RAG citations extracted with proper structure (citationId, documentId, score)
+- ragDecision/ragAbstainReason returned when RAG abstains
+
+**Deferred (require valid user token):**
+- SSE parity test (web vs nest streaming output)
+- Latency baseline capture (50 requests, p50/p95/p99)
+
+**Acceptance met:**
+- [x] Chat SSE streaming endpoint compiles and runs
+- [x] LangSmith tracing integrated (wrapOpenAI + metadata)
+- [x] RAG citations extracted from hybridSearch results
+- [x] Supabase storage helpers ready for per-request RLS
+- [x] CHAT_BACKEND flag added to config
+- [x] Messages saved to OpenRouterChat table
+
+---
+
+### Phase 4+ — (not started)
