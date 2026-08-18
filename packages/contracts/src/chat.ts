@@ -99,6 +99,8 @@ export const ChatStreamMetadataSchema = z.object({
   requestId: z.string().uuid(),
   model: z.string().min(1),
   citations: z.array(RAGCitationSchema).max(10),
+  ragDecision: z.enum(["ANSWER", "ABSTAIN"]).optional(),
+  ragAbstainReason: z.enum(["NO_CANDIDATES", "RERANK_UNAVAILABLE", "LOW_TOP_SCORE", "AMBIGUOUS_TOP_RESULT"]).optional(),
 })
 
 export const SaveChatMessageSchema = z.object({

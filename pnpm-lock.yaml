@@ -45,7 +45,7 @@ importers:
         specifier: ^6.8.2
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
       '@supabase/supabase-js':
-        specifier: ^2.49.9
+        specifier: ^2.110.7
         version: 2.110.7
       openai:
         specifier: ^4.103.0

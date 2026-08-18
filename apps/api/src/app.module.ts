@@ -5,6 +5,10 @@ import { DatabaseModule } from "./database/database.module"
 import { HealthController } from "./health.controller"
 import { RetrievalModule } from "./retrieval/retrieval.module"
 import { IngestionModule } from "./ingestion/ingestion.module"
+import { UsersModule } from "./users/users.module"
+import { ChatHistoryModule } from "./chat-history/chat-history.module"
+import { FeedbackModule } from "./feedback/feedback.module"
+import { IngestionJobsModule } from "./ingestion-jobs/ingestion-jobs.module"
 import { RequestLoggerMiddleware } from "./request-logger.middleware"
 
 @Module({
@@ -17,6 +21,10 @@ import { RequestLoggerMiddleware } from "./request-logger.middleware"
     DatabaseModule,
     RetrievalModule,
     IngestionModule,
+    UsersModule,
+    ChatHistoryModule,
+    FeedbackModule,
+    IngestionJobsModule,
   ],
   controllers: [HealthController],
 })
