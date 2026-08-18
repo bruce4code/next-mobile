@@ -9,6 +9,7 @@ import { UsersModule } from "./users/users.module"
 import { ChatHistoryModule } from "./chat-history/chat-history.module"
 import { FeedbackModule } from "./feedback/feedback.module"
 import { IngestionJobsModule } from "./ingestion-jobs/ingestion-jobs.module"
+import { DocumentsModule } from "./documents/documents.module"
 import { RequestLoggerMiddleware } from "./request-logger.middleware"
 
 @Module({
@@ -25,6 +26,7 @@ import { RequestLoggerMiddleware } from "./request-logger.middleware"
     ChatHistoryModule,
     FeedbackModule,
     IngestionJobsModule,
+    DocumentsModule,
   ],
   controllers: [HealthController],
 })
