@@ -1,6 +1,6 @@
 import 'dotenv/config'
-import { processNextIngestionJob } from '../src/lib/ingestion'
-import prisma from '../src/lib/prisma'
+import { processNextIngestionJob } from '../apps/web/src/lib/ingestion'
+import prisma from '../apps/web/src/lib/prisma'
 
 const POLL_INTERVAL_MS = Number(process.env.INGESTION_POLL_INTERVAL_MS ?? 2_000)
 let stopping = false
