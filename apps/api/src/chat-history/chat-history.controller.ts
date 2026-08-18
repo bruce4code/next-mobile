@@ -1,6 +1,6 @@
 import { BadRequestException, Controller, Get, Query } from "@nestjs/common"
 import { ChatHistoryQuerySchema } from "@ai-arg/contracts"
-import type { AuthenticatedCurrentUser } from "../auth/auth.types"
+import type { AuthenticatedUser } from "../auth/auth.types"
 import { CurrentUser } from "../auth/current-user.decorator"
 import { ChatHistoryService } from "./chat-history.service"
 

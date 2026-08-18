@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Post } from "@nestjs/common"
 import { FeedbackRequestSchema } from "@ai-arg/contracts"
-import type { AuthenticatedCurrentUser } from "../auth/auth.types"
+import type { AuthenticatedUser } from "../auth/auth.types"
 import { CurrentUser } from "../auth/current-user.decorator"
 import { FeedbackService } from "./feedback.service"
 

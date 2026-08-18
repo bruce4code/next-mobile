@@ -1,5 +1,5 @@
 import { Controller, Get, NotFoundException, Param } from "@nestjs/common"
-import type { AuthenticatedCurrentUser } from "../auth/auth.types"
+import type { AuthenticatedUser } from "../auth/auth.types"
 import { CurrentUser } from "../auth/current-user.decorator"
 import { IngestionJobsService } from "./ingestion-jobs.service"
 

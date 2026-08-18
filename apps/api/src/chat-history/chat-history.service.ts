@@ -9,7 +9,7 @@ export class ChatHistoryService {
   async getMessages(userId: string, query: ChatHistoryQuery) {
     const { conversationId, cursorCreatedAt, limit } = query
 
-    const messages = await this.prisma.chatMessage.findMany({
+    const messages = await this.prisma.openRouterChat.findMany({
       where: {
         userId,
         ...(conversationId && { conversationId }),
