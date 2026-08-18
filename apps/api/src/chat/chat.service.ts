@@ -2,12 +2,14 @@ import { Injectable, Logger, MessageEvent } from "@nestjs/common"
 import { Observable } from "rxjs"
 import { randomUUID } from "node:crypto"
 import OpenAI from "openai"
+import { wrapOpenAI } from "langsmith/wrappers/openai"
 import type { ChatRequest } from "@ai-arg/contracts"
 import { PrismaService } from "../database/prisma.service"
 import { RetrievalService } from "../retrieval/retrieval.service"
 
 const DEFAULT_MODEL = "openai/gpt-4o-mini"
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
+const LANGSMITH_ENABLED = Boolean(process.env.LANGCHAIN_API_KEY)
 
 @Injectable()
 export class ChatService {
@@ -22,10 +24,13 @@ export class ChatService {
       throw new Error("OPENROUTER_API_KEY is required")
     }
 
-    this.openai = new OpenAI({
+    const client = new OpenAI({
       apiKey: OPENROUTER_API_KEY,
       baseURL: "https://openrouter.ai/api/v1",
     })
+
+    // Wrap with LangSmith if enabled
+    this.openai = LANGSMITH_ENABLED ? wrapOpenAI(client) : client
   }
 
   streamChatCompletion(userId: string, request: ChatRequest): Observable<MessageEvent> {
@@ -57,7 +62,21 @@ export class ChatService {
 
           // RAG retrieval if enabled
           let ragContext = ""
-          const citations: unknown[] = []
+          let ragDecision: "ANSWER" | "ABSTAIN" | undefined
+          let ragAbstainReason: "NO_CANDIDATES" | "RERANK_UNAVAILABLE" | "LOW_TOP_SCORE" | "AMBIGUOUS_TOP_RESULT" | undefined
+          const citations: Array<{
+            citationId: string
+            documentId: string
+            chunkId: string
+            title: string
+            heading?: string
+            sourceName?: string
+            sourceUri?: string
+            sourceVersion: number
+            startOffset?: number
+            endOffset?: number
+            score: number
+          }> = []
 
           if (request.useRAG && userMessage.content) {
             try {
@@ -67,11 +86,31 @@ export class ChatService {
                 minSimilarity: 0.5,
               })
 
+              ragDecision = searchResult.decision.outcome
+
               if (searchResult.decision.outcome === "ANSWER" && searchResult.documents.length > 0) {
                 ragContext = searchResult.documents
-                  .map((doc) => `【${doc.title}】\n${doc.content}`)
+                  .map((doc, idx) => `【引用${idx + 1}】${doc.title}\n${doc.content}`)
                   .join("\n\n")
-                // TODO: Build proper citations from searchResult.documents
+
+                // Extract citations
+                citations.push(
+                  ...searchResult.documents.map((doc, idx) => ({
+                    citationId: `${idx + 1}`,
+                    documentId: doc.documentId,
+                    chunkId: doc.id,
+                    title: doc.title,
+                    heading: doc.heading,
+                    sourceName: doc.sourceName,
+                    sourceUri: doc.sourceUri,
+                    sourceVersion: doc.sourceVersion,
+                    startOffset: doc.startOffset,
+                    endOffset: doc.endOffset,
+                    score: doc.similarity,
+                  })),
+                )
+              } else if (searchResult.decision.outcome === "ABSTAIN") {
+                ragAbstainReason = searchResult.decision.reason
               }
             } catch (error) {
               this.logger.warn({ event: "RAG.SearchFailed", error })
@@ -94,11 +133,26 @@ export class ChatService {
           }
 
           // Stream from OpenRouter
-          const stream = await this.openai.chat.completions.create({
+          const streamParams: OpenAI.ChatCompletionCreateParamsStreaming = {
             model: DEFAULT_MODEL,
             messages,
             stream: true,
-          })
+          }
+
+          // Add LangSmith metadata if enabled
+          if (LANGSMITH_ENABLED) {
+            ;(streamParams as any).langsmithExtra = {
+              metadata: {
+                userId,
+                conversationId,
+                requestId,
+                useRAG: request.useRAG,
+                citationCount: citations.length,
+              },
+            }
+          }
+
+          const stream = await this.openai.chat.completions.create(streamParams)
 
           let assistantContent = ""
 
@@ -119,6 +173,8 @@ export class ChatService {
               requestId,
               model: DEFAULT_MODEL,
               citations,
+              ragDecision,
+              ragAbstainReason,
             }),
           })
 
