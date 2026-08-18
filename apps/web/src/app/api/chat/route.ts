@@ -31,10 +31,15 @@ const DEFAULT_MODEL_CANDIDATES = DEFAULT_CHAT_MODELS
 const ENABLE_RAG = true
 type RagBackend = 'legacy' | 'shadow' | 'nest'
 
+type NestRetrievalDecision =
+  | { outcome: 'ANSWER' }
+  | { outcome: 'ABSTAIN'; reason: 'NO_CANDIDATES' | 'RERANK_UNAVAILABLE' | 'LOW_TOP_SCORE' | 'AMBIGUOUS_TOP_RESULT' }
+
 type NestRetrievalResponse = {
   documents: Array<{ documentId: string }>
   citations: RAGCitation[]
   context: string
+  decision?: NestRetrievalDecision
 }
 
 function resolveRagBackend(userId: string, email: string | null | undefined): RagBackend {
@@ -59,6 +64,19 @@ function nestTimeoutMs() {
   return Number.isFinite(configured) ? Math.min(Math.max(configured, 100), 8000) : 3500
 }
 
+function isValidNestDecision(decision: unknown): decision is NestRetrievalDecision {
+  if (typeof decision !== 'object' || decision === null) return false
+  const candidate = decision as { outcome?: unknown; reason?: unknown }
+  if (candidate.outcome === 'ANSWER') return true
+  if (candidate.outcome === 'ABSTAIN') {
+    return candidate.reason === 'NO_CANDIDATES'
+      || candidate.reason === 'RERANK_UNAVAILABLE'
+      || candidate.reason === 'LOW_TOP_SCORE'
+      || candidate.reason === 'AMBIGUOUS_TOP_RESULT'
+  }
+  return false
+}
+
 async function requestNestRetrieval(query: string): Promise<NestRetrievalResponse> {
   const accessToken = await getAccessToken()
   const baseURL = process.env.NEST_API_URL
@@ -79,6 +97,9 @@ async function requestNestRetrieval(query: string): Promise<NestRetrievalRespons
   const payload = await response.json() as Partial<NestRetrievalResponse>
   if (!Array.isArray(payload.documents) || !Array.isArray(payload.citations) || typeof payload.context !== 'string') {
     throw new Error('Nest retrieval returned an invalid response')
+  }
+  if (payload.decision !== undefined && !isValidNestDecision(payload.decision)) {
+    throw new Error('Nest retrieval returned an invalid decision')
   }
 
   return payload as NestRetrievalResponse
@@ -307,10 +328,22 @@ export async function POST(req: Request) {
               try {
                 const nestResult = await requestNestRetrieval(retrievalQuery)
                 nestResponseReceived = true
-                similarDocsCount = nestResult.documents.length
-                citations = nestResult.citations
-                ragContext = nestResult.context
-                console.log(`✅ Nest 检索到 ${similarDocsCount} 个相关文档`)
+                if (nestResult.decision) {
+                  ragDecision = nestResult.decision
+                }
+                if (nestResult.decision?.outcome === 'ANSWER') {
+                  similarDocsCount = nestResult.documents.length
+                  citations = nestResult.citations
+                  ragContext = nestResult.context
+                  console.log(`✅ Nest 检索到 ${similarDocsCount} 个相关文档`)
+                } else {
+                  console.info('RAG abstention decision', {
+                    requestId,
+                    backend: 'nest',
+                    reason: nestResult.decision?.reason ?? 'NO_CANDIDATES',
+                    mode: abstentionMode,
+                  })
+                }
               } catch (nestError) {
                 console.warn('⚠️ Nest RAG 检索失败，回退到 legacy:', nestError)
               }
@@ -343,7 +376,8 @@ export async function POST(req: Request) {
               }
             }
 
-            if (!ragContext && ragBackend === 'nest' && nestResponseReceived) {
+            // 兼容未返回 decision 的旧版 Nest：保留 NO_CANDIDATES 兜底
+            if (!ragContext && ragBackend === 'nest' && nestResponseReceived && ragDecision === null) {
               ragDecision = { outcome: 'ABSTAIN', reason: 'NO_CANDIDATES' }
             }
 

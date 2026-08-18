@@ -37,11 +37,12 @@ export class RetrievalController {
       throw new BadRequestException({ error: "请求参数校验失败", details: error })
     }
 
-    const documents = await this.retrieval.hybridSearch(user.id, request)
+    const { documents, decision } = await this.retrieval.hybridSearch(user.id, request)
     return {
       documents,
       citations: this.retrieval.toCitations(documents),
       context: this.retrieval.buildContext(documents),
+      decision,
     }
   }
 }

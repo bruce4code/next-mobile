@@ -15,10 +15,15 @@
     "build:web": "pnpm --filter @ai-arg/web build",
     "build:api": "pnpm --filter @ai-arg/api build",
     "lint": "pnpm --filter @ai-arg/web lint && pnpm --filter @ai-arg/api lint",
-    "prisma:generate": "pnpm --filter @ai-arg/web exec prisma generate --schema ../../prisma/schema.prisma"
+    "prisma:generate": "pnpm --filter @ai-arg/web exec prisma generate --schema ../../prisma/schema.prisma",
+    "parity:ingestion": "tsx scripts/parity/ingestion-parity.ts",
+    "parity:endpoint": "tsx scripts/parity/endpoint-roundtrip.ts",
+    "parity:sse": "tsx scripts/parity/sse-capture.ts",
+    "baseline": "tsx scripts/parity/baseline-latency.ts"
   },
   "devDependencies": {
     "@prisma/client": "6.19.3",
-    "prisma": "^6.8.2"
+    "prisma": "^6.8.2",
+    "tsx": "^4.19.2"
   }
 }
