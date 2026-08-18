@@ -173,4 +173,37 @@ pnpm parity:ingestion -- --mode=web-self  # ✅ PASS
 
 ---
 
-### Phase 1+ — (not started)
+### Phase 1 — Ingestion cutover (completed)
+
+**Branch:** `codex/nest-monorepo-migration`
+
+**Implementation:**
+- Added `INGESTION_BACKEND` flag to `packages/config/src/index.ts` (z.enum web|nest, default web)
+- Transformed `scripts/ingestion-worker.ts` into dual-mode poller:
+  - `INGESTION_BACKEND=web`: direct function call (legacy)
+  - `INGESTION_BACKEND=nest`: HTTP POST to `${NEST_API_URL}/api/ingestion/process` with Bearer token
+- Updated parity script with `web-vs-nest` mode: creates test doc, processes via both backends, compares chunk count/versions/offsets
+- Added `INGESTION_WORKER_SECRET` to `.env` (base64, 32 bytes)
+
+**Commands run:**
+```bash
+pnpm --filter @ai-arg/contracts build
+pnpm --filter @ai-arg/config build
+pnpm --filter @ai-arg/api start:dev  # Nest on :4000
+pnpm parity:ingestion -- --mode=web-self      # ✅ PASS
+pnpm parity:ingestion -- --mode=web-vs-nest   # ✅ PASS (1 chunk, langchain-300-50-v1/inline-text-v1)
+```
+
+**Verification:**
+- Nest `/api/ingestion/process` endpoint accepts `{limit: N}`, returns `{processed, results}`
+- Worker in nest mode polls HTTP endpoint every 2s, logs "Processed job {id} -> {status}"
+- Web and Nest produce identical chunk counts, versions, offsets, headings for same input
+
+**Acceptance met:**
+- [x] Nest and web processors produce identical chunk counts, versions, offsets (verified via parity script)
+- [x] Worker can switch backends via `INGESTION_BACKEND` flag
+- [x] No data loss or corruption (verified: same document processed by both yields same DB state)
+
+---
+
+### Phase 2+ — (not started)

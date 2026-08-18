@@ -159,8 +159,74 @@ async function main() {
     }
   } else if (mode === 'web-vs-nest') {
     console.log('Phase 1 mode: Compare web vs Nest processor output')
-    console.log('TODO: Implement after Nest ingestion endpoint is ready\n')
-    process.exit(1)
+
+    const NEST_API_URL = process.env.NEST_API_URL || 'http://localhost:4000'
+    const INGESTION_WORKER_SECRET = process.env.INGESTION_WORKER_SECRET
+
+    if (!INGESTION_WORKER_SECRET) {
+      console.error('❌ INGESTION_WORKER_SECRET is required for web-vs-nest mode')
+      process.exit(1)
+    }
+
+    const testDoc = {
+      userId: 'test-user-parity-nest',
+      title: 'Web vs Nest Test Document',
+      content: 'Test content.\n\n## Heading 1\nSome text.\n\n## Heading 2\nMore text.',
+      contentType: 'text/plain',
+      idempotencyKey: `parity-nest-${Date.now()}`,
+    }
+
+    console.log('Creating test document for web processor...')
+    const { enqueueDocumentIngestion } = await import('../../apps/web/src/lib/ingestion')
+    const { document: docWeb } = await enqueueDocumentIngestion(testDoc)
+
+    console.log('Processing via web...')
+    await processNextIngestionJob()
+    const webSnap = await captureChunks(docWeb.id)
+    console.log(`Web result: ${webSnap.chunkCount} chunks`)
+
+    console.log('\nCreating test document for Nest processor...')
+    const { document: docNest } = await enqueueDocumentIngestion({
+      ...testDoc,
+      idempotencyKey: `parity-nest-2-${Date.now()}`,
+    })
+
+    console.log('Processing via Nest HTTP endpoint...')
+    const nestUrl = `${NEST_API_URL}/api/ingestion/process`
+    const response = await fetch(nestUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${INGESTION_WORKER_SECRET}`,
+      },
+      body: JSON.stringify({ limit: 1 }),
+    })
+
+    if (!response.ok) {
+      const text = await response.text()
+      console.error(`❌ Nest endpoint failed: HTTP ${response.status}`)
+      console.error(text)
+      process.exit(1)
+    }
+
+    const nestSnap = await captureChunks(docNest.id)
+    console.log(`Nest result: ${nestSnap.chunkCount} chunks`)
+
+    const diffs = compareSnapshots(webSnap, nestSnap)
+
+    console.log('\n=== Results ===')
+    console.log(`Web:  ${webSnap.chunkCount} chunks, ${webSnap.chunkingVersion}/${webSnap.parserVersion}`)
+    console.log(`Nest: ${nestSnap.chunkCount} chunks, ${nestSnap.chunkingVersion}/${nestSnap.parserVersion}`)
+
+    if (diffs.length === 0) {
+      console.log('✅ PASS: Web and Nest produce identical output\n')
+      process.exit(0)
+    } else {
+      console.log('❌ FAIL: Output differs:')
+      diffs.forEach(d => console.log(`  - ${d}`))
+      console.log()
+      process.exit(1)
+    }
   } else {
     console.error(`Unknown mode: ${mode}`)
     process.exit(1)
