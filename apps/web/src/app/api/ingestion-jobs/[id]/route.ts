@@ -1,41 +1,41 @@
-import { NextResponse } from 'next/server'
-import { getUser } from '@/app/auth/server'
-import prisma from '@/lib/prisma'
+/**
+ * Ingestion jobs proxy - routes to web or nest backend
+ */
+
+import { backendConfig, getApiUrl } from "@/lib/backend-config"
+import { getAccessToken } from "@/app/auth/server"
 
 export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getUser()
-  if (!user) {
-    return NextResponse.json({ error: '未登录' }, { status: 401 })
+  // Note: params is a Promise in Next.js 15
+  const { id } = await params
+
+  if (backendConfig.documents === "web") {
+    const { GET: webGet } = await import("./route.web")
+    return webGet(req, { params: Promise.resolve({ id }) })
   }
 
-  const { id } = await params
-  const job = await prisma.ingestionJob.findFirst({
-    where: { id, userId: user.id },
-    select: {
-      id: true,
-      documentId: true,
-      documentVersion: true,
-      operation: true,
-      status: true,
-      attempt: true,
-      maxAttempts: true,
-      error: true,
-      availableAt: true,
-      startedAt: true,
-      finishedAt: true,
-      createdAt: true,
-      updatedAt: true,
+  const token = await getAccessToken()
+  if (!token) {
+    return new Response(JSON.stringify({ error: "未登录" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    })
+  }
+
+  const nestUrl = getApiUrl("documents", `/ingestion-jobs/${id}`)
+
+  const nestResponse = await fetch(nestUrl, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
     },
   })
 
-  if (!job) {
-    return NextResponse.json({ error: '任务不存在' }, { status: 404 })
-  }
-
-  return NextResponse.json(job, {
-    headers: { 'Cache-Control': 'no-store' },
+  return new Response(await nestResponse.text(), {
+    status: nestResponse.status,
+    headers: { "Content-Type": "application/json" },
   })
 }

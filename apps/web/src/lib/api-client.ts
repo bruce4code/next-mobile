@@ -3,12 +3,17 @@
  *
  * Wraps fetch calls to automatically route to correct backend based on config.
  * Handles authentication token injection for Nest endpoints.
+ * Includes monitoring and rollout support.
  */
 
 import { getApiUrl, backendConfig, type Backend } from "./backend-config"
+import { getUserBackend } from "./rollout"
+import { logBackendRoute } from "./backend-monitoring"
 
 interface RequestOptions extends RequestInit {
   backend?: Backend
+  userId?: string // For per-user rollout
+  skipMonitoring?: boolean
 }
 
 /**
@@ -19,24 +24,66 @@ export async function apiFetch(
   path: string,
   options: RequestOptions = {},
 ): Promise<Response> {
-  const backend = options.backend ?? backendConfig[service]
+  const startTime = performance.now()
+
+  // Determine backend (with per-user rollout support)
+  let backend = options.backend ?? backendConfig[service]
+  if (options.userId) {
+    backend = getUserBackend(options.userId, service)
+  }
+
   const url = getApiUrl(service, path)
 
   const headers = new Headers(options.headers)
 
   // Inject Supabase token for Nest backend
   if (backend === "nest") {
-    // Get token from cookie or localStorage (server vs client)
     const token = await getSupabaseToken()
     if (token) {
       headers.set("Authorization", `Bearer ${token}`)
     }
   }
 
-  return fetch(url, {
-    ...options,
-    headers,
-  })
+  try {
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    })
+
+    // Log routing decision
+    if (!options.skipMonitoring) {
+      const latencyMs = Math.round(performance.now() - startTime)
+      logBackendRoute({
+        timestamp: new Date().toISOString(),
+        service,
+        backend,
+        userId: options.userId,
+        url,
+        method: options.method || "GET",
+        statusCode: response.status,
+        latencyMs,
+      })
+    }
+
+    return response
+  } catch (error) {
+    // Log error
+    if (!options.skipMonitoring) {
+      const latencyMs = Math.round(performance.now() - startTime)
+      logBackendRoute({
+        timestamp: new Date().toISOString(),
+        service,
+        backend,
+        userId: options.userId,
+        url,
+        method: options.method || "GET",
+        latencyMs,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+
+    throw error
+  }
 }
 
 /**
