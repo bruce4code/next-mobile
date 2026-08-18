@@ -8,6 +8,7 @@ const EnvironmentSchema = z.object({
   INGESTION_BACKEND: BackendSchema,
   USER_BACKEND: BackendSchema,
   CHAT_HISTORY_BACKEND: BackendSchema,
+  CHAT_BACKEND: BackendSchema,
   FEEDBACK_BACKEND: BackendSchema,
   DOCUMENTS_BACKEND: BackendSchema,
 })

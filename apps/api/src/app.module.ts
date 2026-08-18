@@ -8,6 +8,7 @@ import { RetrievalModule } from "./retrieval/retrieval.module"
 import { IngestionModule } from "./ingestion/ingestion.module"
 import { UsersModule } from "./users/users.module"
 import { ChatHistoryModule } from "./chat-history/chat-history.module"
+import { ChatModule } from "./chat/chat.module"
 import { FeedbackModule } from "./feedback/feedback.module"
 import { IngestionJobsModule } from "./ingestion-jobs/ingestion-jobs.module"
 import { DocumentsModule } from "./documents/documents.module"
@@ -26,6 +27,7 @@ import { RequestLoggerMiddleware } from "./request-logger.middleware"
     IngestionModule,
     UsersModule,
     ChatHistoryModule,
+    ChatModule,
     FeedbackModule,
     IngestionJobsModule,
     DocumentsModule,
