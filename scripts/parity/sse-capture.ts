@@ -128,8 +128,8 @@ async function main() {
   const token = tokenArg.split('=')[1]
   const prompt = promptArg.split('=')[1]
 
-  const webBase = process.env.WEB_BASE_URL || 'http://localhost:3000'
-  const nestBase = process.env.NEST_API_URL || 'http://localhost:4000/api'
+  const webBase = process.env.WEB_BASE_URL || 'http://localhost:8000'
+  const nestBase = process.env.NEST_API_URL || 'http://localhost:4000'
 
   const requestBody = {
     messages: [{ role: 'user', content: prompt }],
@@ -138,11 +138,11 @@ async function main() {
 
   console.log(`Capturing SSE streams for prompt: "${prompt}"`)
   console.log(`Web:  ${webBase}/api/chat`)
-  console.log(`Nest: ${nestBase}/chat\n`)
+  console.log(`Nest: ${nestBase}/api/chat\n`)
 
   const [webEvents, nestEvents] = await Promise.all([
     captureStream(`${webBase}/api/chat`, token, requestBody),
-    captureStream(`${nestBase}/chat`, token, requestBody),
+    captureStream(`${nestBase}/api/chat`, token, requestBody),
   ])
 
   console.log(`Web events:  ${webEvents.length}`)

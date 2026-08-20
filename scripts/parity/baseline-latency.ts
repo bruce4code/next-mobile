@@ -69,7 +69,7 @@ async function main() {
   const token = tokenArg.split('=')[1]
   const count = countArg ? parseInt(countArg.split('=')[1], 10) : 20
 
-  const webBase = process.env.WEB_BASE_URL || 'http://localhost:3000'
+  const webBase = process.env.WEB_BASE_URL || 'http://localhost:8000'
   const endpoint = `${webBase}/api/chat`
 
   console.log(`Measuring baseline latency (${count} requests)`)

@@ -80,28 +80,49 @@ async function fetchEndpoint(base: string, path: string, token: string) {
   }
 }
 
-async function main() {
-  const endpointArg = process.argv.find(a => a.startsWith('--endpoint='))
-  const tokenArg = process.argv.find(a => a.startsWith('--token='))
+/**
+ * Web and Nest do not share URL shapes for every capability
+ * (web /api/user vs Nest /api/users/me), so each pair is listed
+ * explicitly instead of reusing one path for both sides.
+ */
+const ENDPOINT_PAIRS: Record<string, { web: string; nest: string }> = {
+  user: { web: '/api/user', nest: '/api/users/me' },
+  'chat-history': { web: '/api/get-chat', nest: '/api/chat-history' },
+  documents: { web: '/api/documents', nest: '/api/documents' },
+}
 
-  if (!endpointArg || !tokenArg) {
-    console.error('Usage: tsx endpoint-roundtrip.ts --endpoint=/api/user --token=<token>')
+async function main() {
+  const serviceArg = process.argv.find(a => a.startsWith('--service='))
+  const tokenArg = process.argv.find(a => a.startsWith('--token='))
+  const queryArg = process.argv.find(a => a.startsWith('--query='))
+
+  if (!serviceArg || !tokenArg) {
+    console.error('Usage: tsx endpoint-roundtrip.ts --service=<name> --token=<token> [--query=?a=b]')
+    console.error(`Known services: ${Object.keys(ENDPOINT_PAIRS).join(', ')}`)
     process.exit(1)
   }
 
-  const endpoint = endpointArg.split('=')[1]
+  const service = serviceArg.split('=')[1]
   const token = tokenArg.split('=')[1]
+  const query = queryArg ? queryArg.split('=').slice(1).join('=') : ''
 
-  const webBase = process.env.WEB_BASE_URL || 'http://localhost:3000'
-  const nestBase = process.env.NEST_API_URL || 'http://localhost:4000/api'
+  const pair = ENDPOINT_PAIRS[service]
+  if (!pair) {
+    console.error(`Unknown service: ${service}`)
+    console.error(`Known services: ${Object.keys(ENDPOINT_PAIRS).join(', ')}`)
+    process.exit(1)
+  }
 
-  console.log(`Comparing endpoint: ${endpoint}`)
-  console.log(`Web:  ${webBase}`)
-  console.log(`Nest: ${nestBase}\n`)
+  const webBase = process.env.WEB_BASE_URL || 'http://localhost:8000'
+  const nestBase = process.env.NEST_API_URL || 'http://localhost:4000'
+
+  console.log(`Comparing service: ${service}`)
+  console.log(`Web:  ${webBase}${pair.web}${query}`)
+  console.log(`Nest: ${nestBase}${pair.nest}${query}\n`)
 
   const [webRes, nestRes] = await Promise.all([
-    fetchEndpoint(webBase, endpoint, token),
-    fetchEndpoint(nestBase, endpoint, token),
+    fetchEndpoint(webBase, `${pair.web}${query}`, token),
+    fetchEndpoint(nestBase, `${pair.nest}${query}`, token),
   ])
 
   console.log(`Web status:  ${webRes.status}`)

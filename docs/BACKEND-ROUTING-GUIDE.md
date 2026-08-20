@@ -221,9 +221,27 @@ if (process.env.EMERGENCY_DISABLE_NEST === 'true') {
 
 ### "Different response from Nest vs Web"
 
-- Run parity tests: `pnpm parity:chat -- --mode=web-vs-nest`
+Run the parity scripts (from repo root):
+
+```bash
+# Ingestion: compares chunk output written to the DB
+pnpm parity:ingestion -- --mode=web-vs-nest
+
+# JSON endpoints: compares response bodies for the same token
+pnpm parity:endpoint -- --service=user --token=<token>
+pnpm parity:endpoint -- --service=chat-history --token=<token>
+
+# Chat SSE: compares event sequence and shapes
+pnpm parity:sse -- --token=<token> --prompt="hello"
+```
+
+Then:
 - Check contract schemas match between web and Nest
 - Review Nest implementation vs web implementation
+
+Note: `parity:endpoint` takes `--service` (not a raw path) because web and
+Nest use different URLs for the same capability — the pairs are defined in
+`scripts/parity/endpoint-roundtrip.ts`.
 
 ## Examples
 

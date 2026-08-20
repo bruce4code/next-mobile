@@ -99,6 +99,66 @@ function compareSnapshots(a: ChunkSnapshot, b: ChunkSnapshot): string[] {
   return diffs
 }
 
+/**
+ * Drain the queue until the target document has been processed.
+ *
+ * processNextIngestionJob() claims the oldest available job, which is not
+ * necessarily the one we just enqueued — leftover jobs from earlier runs are
+ * picked up first. Loop until this document's chunks exist (or the queue is
+ * empty) instead of assuming one call is enough.
+ */
+async function processUntilDocumentDone(documentId: string, maxJobs = 20): Promise<void> {
+  for (let i = 0; i < maxJobs; i++) {
+    const chunkCount = await prisma.documentChunk.count({ where: { documentId } })
+    if (chunkCount > 0) return
+
+    const result = await processNextIngestionJob()
+    if (!result) {
+      throw new Error(`Queue drained without processing document ${documentId}`)
+    }
+  }
+
+  throw new Error(`Document ${documentId} not processed after ${maxJobs} jobs`)
+}
+
+/**
+ * Same drain semantics as processUntilDocumentDone, but driving the Nest
+ * HTTP endpoint instead of calling the web processor in-process.
+ */
+async function processViaNestUntilDone(
+  documentId: string,
+  nestApiUrl: string,
+  workerSecret: string,
+  maxJobs = 20,
+): Promise<void> {
+  const nestUrl = `${nestApiUrl}/api/ingestion/process`
+
+  for (let i = 0; i < maxJobs; i++) {
+    const chunkCount = await prisma.documentChunk.count({ where: { documentId } })
+    if (chunkCount > 0) return
+
+    const response = await fetch(nestUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${workerSecret}`,
+      },
+      body: JSON.stringify({ limit: 1 }),
+    })
+
+    if (!response.ok) {
+      throw new Error(`Nest endpoint failed: HTTP ${response.status} ${await response.text()}`)
+    }
+
+    const data = (await response.json()) as { processed: number }
+    if (data.processed === 0) {
+      throw new Error(`Nest queue drained without processing document ${documentId}`)
+    }
+  }
+
+  throw new Error(`Document ${documentId} not processed by Nest after ${maxJobs} jobs`)
+}
+
 async function main() {
   const mode = process.argv.find(a => a.startsWith('--mode='))?.split('=')[1] || 'web-self'
 
@@ -121,7 +181,7 @@ async function main() {
     const { document: doc1 } = await enqueueDocumentIngestion(testDoc)
 
     console.log('Processing job (run 1)...')
-    await processNextIngestionJob()
+    await processUntilDocumentDone(doc1.id)
     const snap1 = await captureChunks(doc1.id)
 
     console.log('Deleting chunks...')
@@ -139,7 +199,7 @@ async function main() {
     })
 
     console.log('Processing job (run 2)...')
-    await processNextIngestionJob()
+    await processUntilDocumentDone(doc1.id)
     const snap2 = await captureChunks(doc1.id)
 
     const diffs = compareSnapshots(snap1, snap2)
@@ -181,7 +241,7 @@ async function main() {
     const { document: docWeb } = await enqueueDocumentIngestion(testDoc)
 
     console.log('Processing via web...')
-    await processNextIngestionJob()
+    await processUntilDocumentDone(docWeb.id)
     const webSnap = await captureChunks(docWeb.id)
     console.log(`Web result: ${webSnap.chunkCount} chunks`)
 
@@ -192,22 +252,7 @@ async function main() {
     })
 
     console.log('Processing via Nest HTTP endpoint...')
-    const nestUrl = `${NEST_API_URL}/api/ingestion/process`
-    const response = await fetch(nestUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${INGESTION_WORKER_SECRET}`,
-      },
-      body: JSON.stringify({ limit: 1 }),
-    })
-
-    if (!response.ok) {
-      const text = await response.text()
-      console.error(`❌ Nest endpoint failed: HTTP ${response.status}`)
-      console.error(text)
-      process.exit(1)
-    }
+    await processViaNestUntilDone(docNest.id, NEST_API_URL, INGESTION_WORKER_SECRET)
 
     const nestSnap = await captureChunks(docNest.id)
     console.log(`Nest result: ${nestSnap.chunkCount} chunks`)
