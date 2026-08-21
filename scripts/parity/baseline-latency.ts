@@ -61,12 +61,14 @@ async function main() {
   const tokenArg = process.argv.find(a => a.startsWith('--token='))
   const countArg = process.argv.find(a => a.startsWith('--count='))
 
-  if (!tokenArg) {
-    console.error('Usage: tsx baseline-latency.ts --token=<token> [--count=20]')
+  const token = tokenArg ? tokenArg.split('=').slice(1).join('=') : process.env.PARITY_TOKEN
+
+  if (!token) {
+    console.error('Usage: tsx baseline-latency.ts [--token=<token>] [--count=20]')
+    console.error('Token may also come from PARITY_TOKEN (see: pnpm parity:token).')
     process.exit(1)
   }
 
-  const token = tokenArg.split('=')[1]
   const count = countArg ? parseInt(countArg.split('=')[1], 10) : 20
 
   const webBase = process.env.WEB_BASE_URL || 'http://localhost:8000'

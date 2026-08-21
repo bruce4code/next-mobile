@@ -96,14 +96,16 @@ async function main() {
   const tokenArg = process.argv.find(a => a.startsWith('--token='))
   const queryArg = process.argv.find(a => a.startsWith('--query='))
 
-  if (!serviceArg || !tokenArg) {
-    console.error('Usage: tsx endpoint-roundtrip.ts --service=<name> --token=<token> [--query=?a=b]')
+  const token = tokenArg ? tokenArg.split('=').slice(1).join('=') : process.env.PARITY_TOKEN
+
+  if (!serviceArg || !token) {
+    console.error('Usage: tsx endpoint-roundtrip.ts --service=<name> [--token=<token>] [--query=?a=b]')
+    console.error('Token may also come from PARITY_TOKEN (see: pnpm parity:token).')
     console.error(`Known services: ${Object.keys(ENDPOINT_PAIRS).join(', ')}`)
     process.exit(1)
   }
 
   const service = serviceArg.split('=')[1]
-  const token = tokenArg.split('=')[1]
   const query = queryArg ? queryArg.split('=').slice(1).join('=') : ''
 
   const pair = ENDPOINT_PAIRS[service]

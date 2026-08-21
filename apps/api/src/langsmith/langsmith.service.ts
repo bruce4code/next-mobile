@@ -8,14 +8,17 @@ export class LangSmithService {
   private readonly enabled: boolean
 
   constructor() {
-    const apiKey = process.env.LANGCHAIN_API_KEY
+    // The langsmith SDK reads LANGSMITH_API_KEY (LANGCHAIN_API_KEY is the
+    // older alias it still honours). Accept both so this matches whichever
+    // name the shared .env uses.
+    const apiKey = process.env.LANGSMITH_API_KEY ?? process.env.LANGCHAIN_API_KEY
     this.enabled = Boolean(apiKey)
 
     if (this.enabled) {
       this.client = new Client({ apiKey })
       this.logger.log("LangSmith client initialized")
     } else {
-      this.logger.warn("LANGCHAIN_API_KEY not set, LangSmith disabled")
+      this.logger.warn("LANGSMITH_API_KEY not set, LangSmith disabled")
       // Create a dummy client to avoid null checks
       this.client = new Client()
     }

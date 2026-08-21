@@ -9,7 +9,7 @@ import { RetrievalService } from "../retrieval/retrieval.service"
 
 const DEFAULT_MODEL = "openai/gpt-4o-mini"
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY
-const LANGSMITH_ENABLED = Boolean(process.env.LANGCHAIN_API_KEY)
+const LANGSMITH_ENABLED = Boolean(process.env.LANGSMITH_API_KEY ?? process.env.LANGCHAIN_API_KEY)
 
 @Injectable()
 export class ChatService {

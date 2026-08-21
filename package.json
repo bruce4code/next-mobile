@@ -16,6 +16,7 @@
     "build:api": "pnpm --filter @ai-arg/api build",
     "lint": "pnpm --filter @ai-arg/web lint && pnpm --filter @ai-arg/api lint",
     "prisma:generate": "pnpm --filter @ai-arg/web exec prisma generate --schema ../../prisma/schema.prisma",
+    "parity:token": "tsx scripts/parity/get-token.ts",
     "parity:ingestion": "tsx scripts/parity/ingestion-parity.ts",
     "parity:endpoint": "tsx scripts/parity/endpoint-roundtrip.ts",
     "parity:sse": "tsx scripts/parity/sse-capture.ts",

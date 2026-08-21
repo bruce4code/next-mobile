@@ -120,13 +120,15 @@ async function main() {
   const tokenArg = process.argv.find(a => a.startsWith('--token='))
   const promptArg = process.argv.find(a => a.startsWith('--prompt='))
 
-  if (!tokenArg || !promptArg) {
-    console.error('Usage: tsx sse-capture.ts --token=<token> --prompt="..."')
+  const token = tokenArg ? tokenArg.split('=').slice(1).join('=') : process.env.PARITY_TOKEN
+
+  if (!token || !promptArg) {
+    console.error('Usage: tsx sse-capture.ts [--token=<token>] --prompt="..."')
+    console.error('Token may also come from PARITY_TOKEN (see: pnpm parity:token).')
     process.exit(1)
   }
 
-  const token = tokenArg.split('=')[1]
-  const prompt = promptArg.split('=')[1]
+  const prompt = promptArg.split('=').slice(1).join('=')
 
   const webBase = process.env.WEB_BASE_URL || 'http://localhost:8000'
   const nestBase = process.env.NEST_API_URL || 'http://localhost:4000'
