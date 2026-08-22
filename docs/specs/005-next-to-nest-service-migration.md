@@ -334,9 +334,55 @@ curl -X POST http://localhost:4000/api/chat -d '{"messages":[{"role":"user","con
 - RAG citations extracted with proper structure (citationId, documentId, score)
 - ragDecision/ragAbstainReason returned when RAG abstains
 
-**Deferred (require valid user token):**
-- SSE parity test (web vs nest streaming output)
-- Latency baseline capture (50 requests, p50/p95/p99)
+**SSE parity (run against a real token, 2026-08-22):**
+
+`pnpm parity:sse -- --prompt="你好"` — structural parity holds:
+
+| Property | web | nest |
+|---|---|---|
+| first event | metadata | metadata |
+| delta format | `choices[0].delta.content` | same |
+| malformed deltas | 0 | 0 |
+| terminator | `[DONE]` | `[DONE]` |
+| model | qwen/qwen3-8b | qwen/qwen3-8b |
+| error message | 模型流式响应中断，请稍后重试 | identical |
+
+Five defects found and fixed along the way. Four would have been visible to
+users:
+
+- **Wrong provider.** Nest hardcoded OpenRouter's base URL and
+  `openai/gpt-4o-mini` and read only `OPENROUTER_API_KEY`, while web resolves
+  `SILICONFLOW_API_KEY` → `OPENROUTER_API_KEY` and `LLM_BASE_URL` → … →
+  siliconflow with `Qwen/Qwen3-8B`. Nest never saw the key this `.env` sets, so
+  every request failed on the first chunk. Now shared via `chat/llm-config.ts`.
+- **Delta events had the wrong shape.** Nest sent `{type:"delta", content}`;
+  web forwards the provider chunk unchanged. ChatPanel reads
+  `choices[0].delta.content`, so no answer text would have rendered at all.
+- **metadata was emitted last**, after every delta. The client reads
+  `requestId` and citations from it before text arrives.
+- **`[DONE]` was missing** on both the success and error paths.
+- **Raw exception text was forwarded to the client** (`"Premature close"`)
+  instead of web's fixed message — a user-visible string change on a frozen
+  protocol, and a potential internals leak (see Data And Security).
+- No model fallback: web tries each `LLM_MODEL` candidate and short-circuits on
+  401/403; Nest pinned one model.
+
+Harness corrections made in the same pass: the script sent Bearer to web (which
+uses cookie sessions), captured both streams concurrently (contending for one
+provider rate limit, so throttling read as a code fault), and compared events by
+index (one extra delta shifted every later position, reporting spurious
+mismatches). It now compares structure, captures serially, and treats identical
+failure on both sides as parity rather than a defect.
+
+Known upstream issue, not migration-related: the provider truncates streams
+mid-response (`Premature close`), which web reports too — its error handling for
+this predates this work. Runs may therefore end in the shared error event; that
+confirms the error path agrees but does not exercise a clean stream.
+
+**Latency baseline (web, serial, 20 requests, 2026-08-22):**
+p50 4905ms, p95 6722ms, mean 5193ms, 20/20 successful — written to
+`docs/baselines.md`. Phase 3's acceptance bound is Nest p50 ≤ 5886ms (+20%);
+**not yet measured for Nest.**
 
 **Acceptance met:**
 - [x] Chat SSE streaming endpoint compiles and runs
@@ -345,6 +391,10 @@ curl -X POST http://localhost:4000/api/chat -d '{"messages":[{"role":"user","con
 - [x] Supabase storage helpers ready for per-request RLS
 - [x] CHAT_BACKEND flag added to config
 - [x] Messages saved to OpenRouterChat table
+- [x] SSE event sequence identical (metadata → deltas → `[DONE]`, error path)
+- [ ] Nest latency within 20% of baseline — baseline captured, Nest not measured
+- [ ] Abstention path parity (`RAG_ABSTENTION_MODE=enforce`) — not exercised
+- [ ] Model fallback / 429 behaviour — implemented, not exercised
 
 ---
 

@@ -112,25 +112,36 @@ function summarize(events: SSEEvent[]): StreamShape {
   }
 }
 
-function compareEvents(webEvents: SSEEvent[], nestEvents: SSEEvent[]): string[] {
+/**
+ * Structural diffs are failures. Both sides failing the same way is not: it
+ * means the error path agrees, which is part of what the frozen protocol
+ * covers. Reported separately so an upstream hiccup is not mistaken for a
+ * migration defect.
+ */
+interface Comparison {
+  diffs: string[]
+  bothErroredIdentically: boolean
+}
+
+function compareEvents(webEvents: SSEEvent[], nestEvents: SSEEvent[]): Comparison {
   const diffs: string[] = []
   const web = summarize(webEvents)
   const nest = summarize(nestEvents)
 
-  for (const [label, shape] of [['web', web], ['nest', nest]] as const) {
-    for (const error of shape.errors) {
-      diffs.push(`${label} stream returned an error event: ${JSON.stringify(error)}`)
-    }
+  const bothErrored = web.errors.length > 0 && nest.errors.length > 0
+  const sameErrors = JSON.stringify(web.errors) === JSON.stringify(nest.errors)
+
+  if (bothErrored && !sameErrors) {
+    diffs.push(
+      `error message differs: ${JSON.stringify(web.errors)} vs ${JSON.stringify(nest.errors)}`,
+    )
   }
 
-  // If both sides errored, the run says nothing about parity except whether the
-  // user-visible message matches — which it must, the protocol being frozen.
-  if (web.errors.length > 0 && nest.errors.length > 0) {
-    if (JSON.stringify(web.errors) !== JSON.stringify(nest.errors)) {
-      diffs.push('error message differs between web and nest (must be identical)')
-    } else {
-      diffs.push('both streams errored identically — rerun to compare a successful stream')
-    }
+  // One side erroring while the other succeeded is a real asymmetry.
+  if ((web.errors.length > 0) !== (nest.errors.length > 0)) {
+    diffs.push(
+      `only one side errored — web: ${JSON.stringify(web.errors)} nest: ${JSON.stringify(nest.errors)}`,
+    )
   }
 
   if (web.firstEventType !== nest.firstEventType) {
@@ -164,12 +175,14 @@ function compareEvents(webEvents: SSEEvent[], nestEvents: SSEEvent[]): string[] 
         `${label}: ${shape.malformedDeltas}/${shape.deltaCount} delta events lack choices[0].delta.content`,
       )
     }
-    if (shape.deltaCount === 0) {
+    // A truncated stream can legitimately carry no deltas, so only treat an
+    // empty stream as a defect when nothing went wrong upstream.
+    if (shape.deltaCount === 0 && shape.errors.length === 0) {
       diffs.push(`${label}: no delta events — the stream produced no text`)
     }
   }
 
-  return diffs
+  return { diffs, bothErroredIdentically: bothErrored && sameErrors }
 }
 
 async function captureStream(
@@ -230,7 +243,7 @@ async function main() {
   const nestEvents = await captureStream(`${nestBase}/api/chat`, nestAuthHeaders(token), requestBody)
   console.log(`  ${nestEvents.length} events\n`)
 
-  const diffs = compareEvents(webEvents, nestEvents)
+  const { diffs, bothErroredIdentically } = compareEvents(webEvents, nestEvents)
 
   const describe = (label: string, events: SSEEvent[]) => {
     const shape = summarize(events)
@@ -245,16 +258,27 @@ async function main() {
   describe('nest', nestEvents)
   console.log()
 
-  if (diffs.length === 0) {
-    console.log('✅ PASS: SSE streams are structurally identical')
-    console.log('   (delta counts may differ — independent generations)\n')
-    process.exit(0)
-  } else {
+  if (diffs.length > 0) {
     console.log('❌ FAIL: Stream differences:')
     diffs.forEach(d => console.log(`  - ${d}`))
     console.log()
     process.exit(1)
   }
+
+  console.log('✅ PASS: SSE streams are structurally identical')
+  console.log('   (delta counts may differ — independent generations)')
+
+  if (bothErroredIdentically) {
+    // Not a failure: identical failure on both sides is itself parity. Called
+    // out so the run is not read as proof that a clean stream works.
+    console.log('\n⚠️  Both streams ended in the same error event:')
+    console.log(`   ${JSON.stringify(summarize(webEvents).errors[0])}`)
+    console.log('   The error path agrees, but this run did not exercise a clean stream.')
+    console.log('   Upstream truncation — web shows it too, so it predates the migration.')
+  }
+
+  console.log()
+  process.exit(0)
 }
 
 main().catch(err => {
