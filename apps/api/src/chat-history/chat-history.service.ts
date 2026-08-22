@@ -6,37 +6,68 @@ import { PrismaService } from "../database/prisma.service"
 export class ChatHistoryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getMessages(userId: string, query: ChatHistoryQuery) {
+  /**
+   * Mirrors web GET /api/get-chat, which serves two different shapes from one
+   * route: a paged message list when conversationId is given, and a bare array
+   * of conversations when it is not.
+   */
+  async getHistory(userId: string, query: ChatHistoryQuery) {
+    if (query.conversationId) {
+      return this.getMessages(userId, query)
+    }
+    return this.getConversations(userId)
+  }
+
+  private async getMessages(userId: string, query: ChatHistoryQuery) {
     const { conversationId, cursorCreatedAt, limit } = query
 
+    // No select: web returns whole rows here, so narrowing the projection
+    // would drop fields (promptTokens, metadata, …) the client may read.
     const messages = await this.prisma.openRouterChat.findMany({
       where: {
         userId,
-        ...(conversationId && { conversationId }),
+        conversationId,
         ...(cursorCreatedAt && { createdAt: { lt: new Date(cursorCreatedAt) } }),
       },
       orderBy: { createdAt: "desc" },
       take: limit + 1,
-      select: {
-        id: true,
-        role: true,
-        content: true,
-        model: true,
-        createdAt: true,
-      },
     })
 
     const hasMore = messages.length > limit
-    const items = hasMore ? messages.slice(0, limit) : messages
+    if (hasMore) messages.pop()
+
+    // web fetches newest-first to apply the cursor, then reverses so the
+    // response reads oldest-first. The cursor therefore points at the first
+    // element (the oldest of this page) and is an id, not a timestamp.
+    messages.reverse()
 
     return {
-      messages: items.map((m) => ({
-        ...m,
-        createdAt: m.createdAt.toISOString(),
-      })),
-      nextCursor: hasMore ? items[items.length - 1]?.createdAt.toISOString() ?? null : null,
-      nextCursorCreatedAt: hasMore ? items[items.length - 1]?.createdAt.toISOString() ?? null : null,
+      messages,
+      nextCursor: hasMore ? messages[0]?.id ?? null : null,
+      nextCursorCreatedAt: hasMore ? messages[0]?.createdAt.toISOString() ?? null : null,
       hasMore,
     }
+  }
+
+  private async getConversations(userId: string) {
+    const grouped = await this.prisma.openRouterChat.groupBy({
+      by: ["conversationId"],
+      where: { userId },
+      _min: { createdAt: true, id: true },
+    })
+
+    return this.prisma.openRouterChat.findMany({
+      where: {
+        id: { in: grouped.map((g) => g._min.id).filter(Boolean) as string[] },
+        userId,
+      },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        content: true,
+        conversationId: true,
+        createdAt: true,
+      },
+    })
   }
 }

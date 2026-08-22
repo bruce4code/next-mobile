@@ -17,6 +17,6 @@ export class ChatHistoryController {
       throw new BadRequestException({ error: "请求参数校验失败", details: error })
     }
 
-    return this.chatHistory.getMessages(user.id, query)
+    return this.chatHistory.getHistory(user.id, query)
   }
 }

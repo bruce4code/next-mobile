@@ -51,6 +51,21 @@ export const ChatHistoryMessagesResponseSchema = z.object({
   hasMore: z.boolean(),
 })
 
+/**
+ * Without conversationId, web GET /api/get-chat returns a bare array of
+ * conversation entries — the earliest message of each conversation — not an
+ * object. The shape differs entirely from the paged-messages branch, so it is
+ * modelled separately rather than folded into one schema.
+ */
+export const ChatHistoryConversationSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  conversationId: z.string(),
+  createdAt: z.string().datetime(),
+})
+
+export const ChatHistoryConversationsResponseSchema = z.array(ChatHistoryConversationSchema)
+
 // Feedback
 export const FeedbackRequestSchema = z.object({
   requestId: z.string().uuid(),
@@ -65,4 +80,6 @@ export type UpdateUserProfile = z.infer<typeof UpdateUserProfileSchema>
 export type ChatHistoryQuery = z.infer<typeof ChatHistoryQuerySchema>
 export type ChatHistoryMessage = z.infer<typeof ChatHistoryMessageSchema>
 export type ChatHistoryMessagesResponse = z.infer<typeof ChatHistoryMessagesResponseSchema>
+export type ChatHistoryConversation = z.infer<typeof ChatHistoryConversationSchema>
+export type ChatHistoryConversationsResponse = z.infer<typeof ChatHistoryConversationsResponseSchema>
 export type FeedbackRequest = z.infer<typeof FeedbackRequestSchema>
