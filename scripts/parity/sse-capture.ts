@@ -49,61 +49,113 @@ function parseSSE(text: string): SSEEvent[] {
   return events
 }
 
+/**
+ * Structural summary of a stream.
+ *
+ * Comparing streams event-by-event does not work: the two backends call the LLM
+ * independently, so they emit different numbers of delta events, and a single
+ * count difference shifts every later index — [DONE] then lands at a different
+ * position and every position after the first delta reports a mismatch. What
+ * the frozen protocol actually constrains is the shape: metadata first, deltas
+ * in the provider's chunk format, [DONE] last.
+ */
+interface StreamShape {
+  firstEventType: string
+  metadata: Record<string, unknown> | null
+  deltaCount: number
+  /** Deltas whose shape does not match {choices:[{delta:{content}}]}. */
+  malformedDeltas: number
+  endsWithDone: boolean
+  errors: unknown[]
+}
+
+function summarize(events: SSEEvent[]): StreamShape {
+  const errors: unknown[] = []
+  let metadata: Record<string, unknown> | null = null
+  let deltaCount = 0
+  let malformedDeltas = 0
+
+  for (const event of events) {
+    if (event.data === '[DONE]') continue
+
+    const parsed = event.parsed as Record<string, unknown> | null | undefined
+    if (!parsed) continue
+
+    if (parsed.type === 'error') {
+      errors.push(parsed.error)
+      continue
+    }
+
+    if (parsed.type === 'metadata') {
+      metadata ??= parsed
+      continue
+    }
+
+    // Anything else should be a provider chunk carrying text.
+    deltaCount++
+    const choices = parsed.choices as Array<{ delta?: { content?: unknown } }> | undefined
+    if (typeof choices?.[0]?.delta?.content !== 'string') {
+      malformedDeltas++
+    }
+  }
+
+  const firstParsed = events[0]?.parsed as Record<string, unknown> | null | undefined
+
+  return {
+    firstEventType:
+      events[0]?.data === '[DONE]' ? '[DONE]' : (firstParsed?.type as string) ?? 'chunk',
+    metadata,
+    deltaCount,
+    malformedDeltas,
+    endsWithDone: events[events.length - 1]?.data === '[DONE]',
+    errors,
+  }
+}
+
 function compareEvents(webEvents: SSEEvent[], nestEvents: SSEEvent[]): string[] {
   const diffs: string[] = []
+  const web = summarize(webEvents)
+  const nest = summarize(nestEvents)
 
-  // Surface error events verbatim: a stream that failed reports one opaque
-  // "type mismatch" otherwise, which says nothing about why it failed.
-  for (const [label, events] of [['web', webEvents], ['nest', nestEvents]] as const) {
-    for (const event of events) {
-      const parsed = event.parsed as { type?: string; error?: unknown } | undefined
-      if (parsed?.type === 'error') {
-        diffs.push(`${label} stream returned an error event: ${JSON.stringify(parsed.error)}`)
-      }
+  for (const [label, shape] of [['web', web], ['nest', nest]] as const) {
+    for (const error of shape.errors) {
+      diffs.push(`${label} stream returned an error event: ${JSON.stringify(error)}`)
     }
   }
 
-  if (webEvents.length !== nestEvents.length) {
-    diffs.push(`Event count: ${webEvents.length} vs ${nestEvents.length}`)
+  if (web.firstEventType !== nest.firstEventType) {
+    diffs.push(`First event: ${web.firstEventType} vs ${nest.firstEventType} (metadata must come first)`)
   }
 
-  const minLen = Math.min(webEvents.length, nestEvents.length)
-  for (let i = 0; i < minLen; i++) {
-    const we = webEvents[i]
-    const ne = nestEvents[i]
+  if (web.endsWithDone !== nest.endsWithDone) {
+    diffs.push(`Ends with [DONE]: ${web.endsWithDone} vs ${nest.endsWithDone}`)
+  }
 
-    if (we.type !== ne.type) {
-      diffs.push(`Event ${i} type: ${we.type} vs ${ne.type}`)
-      continue
+  if (!web.metadata || !nest.metadata) {
+    diffs.push(`metadata event present: ${Boolean(web.metadata)} vs ${Boolean(nest.metadata)}`)
+  } else {
+    const webCites = (web.metadata.citations as unknown[])?.length ?? 0
+    const nestCites = (nest.metadata.citations as unknown[])?.length ?? 0
+    if (webCites !== nestCites) {
+      diffs.push(`metadata citation count: ${webCites} vs ${nestCites}`)
     }
 
-    if (we.data === '[DONE]' && ne.data === '[DONE]') {
-      continue
+    for (const key of ['requestId', 'model', 'citations']) {
+      if (!(key in web.metadata)) diffs.push(`metadata.${key} missing in web`)
+      if (!(key in nest.metadata)) diffs.push(`metadata.${key} missing in nest`)
     }
+  }
 
-    if (!we.parsed || !ne.parsed) {
-      if (we.data !== ne.data) {
-        diffs.push(`Event ${i} unparseable data mismatch`)
-      }
-      continue
+  // Delta counts legitimately differ (independent generations); malformed ones
+  // do not — those mean the client cannot read the text.
+  for (const [label, shape] of [['web', web], ['nest', nest]] as const) {
+    if (shape.malformedDeltas > 0) {
+      diffs.push(
+        `${label}: ${shape.malformedDeltas}/${shape.deltaCount} delta events lack choices[0].delta.content`,
+      )
     }
-
-    const wObj = we.parsed as Record<string, unknown>
-    const nObj = ne.parsed as Record<string, unknown>
-
-    if (wObj.type !== nObj.type) {
-      diffs.push(`Event ${i} JSON type: ${wObj.type} vs ${nObj.type}`)
-    }
-
-    if (wObj.type === 'metadata') {
-      if (wObj.model !== nObj.model && !(String(wObj.model).includes('rag') && String(nObj.model).includes('rag'))) {
-        diffs.push(`Event ${i} model: ${wObj.model} vs ${nObj.model}`)
-      }
-      const wCites = (wObj.citations as unknown[])?.length ?? 0
-      const nCites = (nObj.citations as unknown[])?.length ?? 0
-      if (wCites !== nCites) {
-        diffs.push(`Event ${i} citation count: ${wCites} vs ${nCites}`)
-      }
+    if (shape.deltaCount === 0) {
+      diffs.push(`${label}: no delta events — the stream produced no text`)
     }
   }
 
@@ -156,18 +208,36 @@ async function main() {
   console.log(`Web:  ${webBase}/api/chat`)
   console.log(`Nest: ${nestBase}/api/chat\n`)
 
-  const [webEvents, nestEvents] = await Promise.all([
-    captureStream(`${webBase}/api/chat`, webAuthHeaders(token), requestBody),
-    captureStream(`${nestBase}/api/chat`, nestAuthHeaders(token), requestBody),
-  ])
+  // Sequential, not concurrent: two simultaneous streams compete for the same
+  // provider rate limit, and a throttled side surfaces as an error event that
+  // looks like a code fault. It also keeps timing comparable to the serial
+  // baseline in docs/baselines.md.
+  console.log('Capturing web stream...')
+  const webEvents = await captureStream(`${webBase}/api/chat`, webAuthHeaders(token), requestBody)
+  console.log(`  ${webEvents.length} events`)
 
-  console.log(`Web events:  ${webEvents.length}`)
-  console.log(`Nest events: ${nestEvents.length}\n`)
+  console.log('Capturing nest stream...')
+  const nestEvents = await captureStream(`${nestBase}/api/chat`, nestAuthHeaders(token), requestBody)
+  console.log(`  ${nestEvents.length} events\n`)
 
   const diffs = compareEvents(webEvents, nestEvents)
 
+  const describe = (label: string, events: SSEEvent[]) => {
+    const shape = summarize(events)
+    console.log(
+      `${label}: first=${shape.firstEventType} deltas=${shape.deltaCount} ` +
+        `malformed=${shape.malformedDeltas} done=${shape.endsWithDone} ` +
+        `model=${shape.metadata?.model ?? 'n/a'} citations=${(shape.metadata?.citations as unknown[])?.length ?? 0}`,
+    )
+  }
+
+  describe('web ', webEvents)
+  describe('nest', nestEvents)
+  console.log()
+
   if (diffs.length === 0) {
-    console.log('✅ PASS: SSE streams are structurally identical\n')
+    console.log('✅ PASS: SSE streams are structurally identical')
+    console.log('   (delta counts may differ — independent generations)\n')
     process.exit(0)
   } else {
     console.log('❌ FAIL: Stream differences:')
