@@ -52,6 +52,17 @@ function parseSSE(text: string): SSEEvent[] {
 function compareEvents(webEvents: SSEEvent[], nestEvents: SSEEvent[]): string[] {
   const diffs: string[] = []
 
+  // Surface error events verbatim: a stream that failed reports one opaque
+  // "type mismatch" otherwise, which says nothing about why it failed.
+  for (const [label, events] of [['web', webEvents], ['nest', nestEvents]] as const) {
+    for (const event of events) {
+      const parsed = event.parsed as { type?: string; error?: unknown } | undefined
+      if (parsed?.type === 'error') {
+        diffs.push(`${label} stream returned an error event: ${JSON.stringify(parsed.error)}`)
+      }
+    }
+  }
+
   if (webEvents.length !== nestEvents.length) {
     diffs.push(`Event count: ${webEvents.length} vs ${nestEvents.length}`)
   }
