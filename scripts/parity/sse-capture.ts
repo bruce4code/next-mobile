@@ -10,6 +10,7 @@
  */
 
 import 'dotenv/config'
+import { nestAuthHeaders, resolveToken, webAuthHeaders } from './auth'
 
 interface SSEEvent {
   type: 'data' | 'comment'
@@ -98,12 +99,16 @@ function compareEvents(webEvents: SSEEvent[], nestEvents: SSEEvent[]): string[] 
   return diffs
 }
 
-async function captureStream(url: string, token: string, body: object): Promise<SSEEvent[]> {
+async function captureStream(
+  url: string,
+  authHeaders: Record<string, string>,
+  body: object,
+): Promise<SSEEvent[]> {
   const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
+      ...authHeaders,
     },
     body: JSON.stringify(body),
   })
@@ -117,14 +122,12 @@ async function captureStream(url: string, token: string, body: object): Promise<
 }
 
 async function main() {
-  const tokenArg = process.argv.find(a => a.startsWith('--token='))
   const promptArg = process.argv.find(a => a.startsWith('--prompt='))
 
-  const token = tokenArg ? tokenArg.split('=').slice(1).join('=') : process.env.PARITY_TOKEN
+  const token = resolveToken(process.argv, 'Usage: tsx sse-capture.ts [--token=<token>] --prompt="..."')
 
-  if (!token || !promptArg) {
+  if (!promptArg) {
     console.error('Usage: tsx sse-capture.ts [--token=<token>] --prompt="..."')
-    console.error('Token may also come from PARITY_TOKEN (see: pnpm parity:token).')
     process.exit(1)
   }
 
@@ -143,8 +146,8 @@ async function main() {
   console.log(`Nest: ${nestBase}/api/chat\n`)
 
   const [webEvents, nestEvents] = await Promise.all([
-    captureStream(`${webBase}/api/chat`, token, requestBody),
-    captureStream(`${nestBase}/api/chat`, token, requestBody),
+    captureStream(`${webBase}/api/chat`, webAuthHeaders(token), requestBody),
+    captureStream(`${nestBase}/api/chat`, nestAuthHeaders(token), requestBody),
   ])
 
   console.log(`Web events:  ${webEvents.length}`)

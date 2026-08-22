@@ -8,6 +8,7 @@
 
 import 'dotenv/config'
 import { writeFileSync, existsSync, readFileSync } from 'fs'
+import { resolveToken, webAuthHeaders } from './auth'
 
 interface LatencyMeasurement {
   timestamp: string
@@ -31,7 +32,8 @@ async function measureLatency(url: string, token: string, count: number): Promis
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
+        // Baseline targets the web app, which authenticates by cookie session.
+        ...webAuthHeaders(token),
       },
       body,
     })
@@ -58,16 +60,9 @@ function percentile(values: number[], p: number): number {
 }
 
 async function main() {
-  const tokenArg = process.argv.find(a => a.startsWith('--token='))
   const countArg = process.argv.find(a => a.startsWith('--count='))
 
-  const token = tokenArg ? tokenArg.split('=').slice(1).join('=') : process.env.PARITY_TOKEN
-
-  if (!token) {
-    console.error('Usage: tsx baseline-latency.ts [--token=<token>] [--count=20]')
-    console.error('Token may also come from PARITY_TOKEN (see: pnpm parity:token).')
-    process.exit(1)
-  }
+  const token = resolveToken(process.argv, 'Usage: tsx baseline-latency.ts [--token=<token>] [--count=20]')
 
   const count = countArg ? parseInt(countArg.split('=')[1], 10) : 20
 

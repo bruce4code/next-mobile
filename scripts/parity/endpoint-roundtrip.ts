@@ -10,6 +10,7 @@
  */
 
 import 'dotenv/config'
+import { buildSessionCookie, nestAuthHeaders } from './auth'
 
 interface CompareOptions {
   ignoreFields?: string[]
@@ -68,49 +69,14 @@ function deepEqual(a: unknown, b: unknown, path: string, opts: CompareOptions): 
 }
 
 /**
- * The two backends authenticate differently and cannot be driven with the
- * same credential:
- *
- *   web  — Supabase cookie session, read server-side via getUser()
- *   nest — Authorization: Bearer <access token>
- *
- * Sending a Bearer token to web yields 401 (it never looks at the header), so
- * each side gets the credential it actually understands. The cookie name is
- * derived from the Supabase project ref, matching @supabase/ssr's convention.
+ * web and nest accept different credentials; see ./auth for why.
  */
 type Auth = { kind: 'bearer'; token: string } | { kind: 'cookie'; cookie: string }
 
-function supabaseCookieName(): string {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? ''
-  const ref = url.match(/^https?:\/\/([^.]+)\./)?.[1]
-  if (!ref) {
-    throw new Error('Cannot derive Supabase project ref from SUPABASE_URL')
-  }
-  return `sb-${ref}-auth-token`
-}
-
-/**
- * Build the cookie @supabase/ssr expects: base64-encoded session JSON under
- * the project-scoped cookie name, prefixed with "base64-".
- */
-function buildSessionCookie(token: string): string {
-  const session = {
-    access_token: token,
-    token_type: 'bearer',
-    expires_in: 3600,
-    expires_at: Math.floor(Date.now() / 1000) + 3600,
-    refresh_token: '',
-  }
-  const encoded = Buffer.from(JSON.stringify(session), 'utf-8').toString('base64')
-  return `${supabaseCookieName()}=base64-${encoded}`
-}
-
 async function fetchEndpoint(base: string, path: string, auth: Auth) {
   const url = `${base}${path}`
-  const headers: Record<string, string> =
-    auth.kind === 'bearer'
-      ? { Authorization: `Bearer ${auth.token}` }
-      : { Cookie: auth.cookie }
+  const headers =
+    auth.kind === 'bearer' ? nestAuthHeaders(auth.token) : { Cookie: auth.cookie }
 
   const res = await fetch(url, { headers })
 
