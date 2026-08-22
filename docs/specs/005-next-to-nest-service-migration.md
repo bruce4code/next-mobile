@@ -275,7 +275,24 @@ round of these checks. Restart Nest before trusting a parity result.
 - LangSmith feedback integration (wired in Phase 3)
 - Supabase storage per-request client (documents.service.ts still has a
   deletion placeholder)
-- `documents` round-trip (web `/api/documents` route not present in this tree)
+
+**`documents` is not ready for cutover.** Web's route does exist (313 lines) —
+an earlier note here claiming otherwise was wrong, from a failed `cd` that made
+the file look absent. Three gaps remain between it and the Nest module:
+
+- **`search` semantics differ.** Web embeds the query and does a pgvector
+  nearest-neighbour scan (`embedding <=> query`, `status = READY`, limit 10)
+  returning a `similarity` per row. Nest does a `contains` substring match. Same
+  parameter name, different behaviour and a different response shape — results
+  would silently change on cutover.
+- **Single-document URLs differ.** Web addresses one document via `?id=<uuid>`
+  on the collection route; Nest uses `/documents/:id`. The proxy translates
+  query→path, but this is worth keeping in mind when comparing the two.
+- **Storage deletion is a placeholder.** Deleting a document in Nest logs the
+  intent and leaves the Supabase object in place, so files would accumulate.
+
+Until those close, `DOCUMENTS_BACKEND` should stay `web`, and the
+`documents` round-trip is not meaningful to run.
 
 **Acceptance met:**
 - [x] All 5 modules compile and register successfully
