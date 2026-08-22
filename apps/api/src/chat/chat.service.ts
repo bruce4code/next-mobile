@@ -10,6 +10,10 @@ import { LLM_CONFIG, resolveModelCandidates } from "./llm-config"
 
 const LANGSMITH_ENABLED = Boolean(process.env.LANGSMITH_API_KEY ?? process.env.LANGCHAIN_API_KEY)
 
+// Must stay byte-identical to web's message: the SSE protocol is frozen and
+// this string is user-visible (apps/web/src/app/api/chat/route.web.ts).
+const STREAM_ERROR_MESSAGE = "模型流式响应中断，请稍后重试"
+
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name)
@@ -136,6 +140,9 @@ export class ChatService {
           subscriber.next({ data: "[DONE]" })
           subscriber.complete()
         } catch (error) {
+          // Log the real cause, but send the client the same fixed message web
+          // sends. Forwarding error.message would both change the user-visible
+          // string and risk leaking internals (spec 005, Data And Security).
           this.logger.error({
             event: "Chat.Error",
             requestId,
@@ -146,7 +153,7 @@ export class ChatService {
           subscriber.next({
             data: JSON.stringify({
               type: "error",
-              error: error instanceof Error ? error.message : "Stream error",
+              error: STREAM_ERROR_MESSAGE,
             }),
           })
 

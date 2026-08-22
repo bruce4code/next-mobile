@@ -123,6 +123,16 @@ function compareEvents(webEvents: SSEEvent[], nestEvents: SSEEvent[]): string[] 
     }
   }
 
+  // If both sides errored, the run says nothing about parity except whether the
+  // user-visible message matches — which it must, the protocol being frozen.
+  if (web.errors.length > 0 && nest.errors.length > 0) {
+    if (JSON.stringify(web.errors) !== JSON.stringify(nest.errors)) {
+      diffs.push('error message differs between web and nest (must be identical)')
+    } else {
+      diffs.push('both streams errored identically — rerun to compare a successful stream')
+    }
+  }
+
   if (web.firstEventType !== nest.firstEventType) {
     diffs.push(`First event: ${web.firstEventType} vs ${nest.firstEventType} (metadata must come first)`)
   }
