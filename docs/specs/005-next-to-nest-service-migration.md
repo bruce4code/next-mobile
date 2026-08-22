@@ -241,10 +241,41 @@ curl -X OPTIONS http://localhost:4000/api/users/me -H "Origin: http://localhost:
 - Nest API starts without errors, all 5 modules registered
 - Documents service enqueues ingestion jobs on create/update
 
-**Deferred to Phase 3:**
-- LangSmith feedback integration (feedback.service.ts has placeholder)
-- Supabase storage per-request client (documents.service.ts has deletion placeholder)
-- Round-trip parity tests (will run after Phase 3 streaming cutover)
+**Round-trip parity (run against a real token, 2026-08-22):**
+
+| Service | Command | Result |
+|---|---|---|
+| user | `pnpm parity:endpoint -- --service=user` | PASS |
+| chat-history (conversation list) | `pnpm parity:endpoint -- --service=chat-history` | PASS |
+| chat-history (message page) | `... --query='?conversationId=<id>'` | PASS |
+
+Both initially failed and exposed real defects, since fixed:
+
+- **Profile field set.** Nest `users/me` returned only
+  `id/email/name/avatarUrl/createdAt`; web returns those plus `bio` and
+  `location`, and its PUT omits `createdAt`. `bio`/`location` would have
+  vanished from the profile page on cutover. The contract encoded the same gap
+  because it was written from the spec wording rather than from the route.
+- **chat-history served one shape instead of two.** Web returns a bare array of
+  conversations when `conversationId` is absent and a paged object when it is
+  present; Nest only implemented the paged branch, so the conversation sidebar
+  would have come back empty. Fixing it also surfaced three deviations in the
+  message branch: reversed ordering (web returns oldest-first), a narrowed
+  projection dropping `promptTokens`/`metadata`, and `nextCursor` returning a
+  timestamp where web returns the first row's `id`.
+- **Harness auth mismatch.** The script sent Bearer to both backends, but web
+  authenticates via Supabase cookie session and ignores the header, so web
+  returned 401 against Nest's 200 — a harness fault, not a code fault. Each
+  side now receives the credential it understands.
+
+Note: a stale `nest start` process silently served pre-fix code through one
+round of these checks. Restart Nest before trusting a parity result.
+
+**Deferred:**
+- LangSmith feedback integration (wired in Phase 3)
+- Supabase storage per-request client (documents.service.ts still has a
+  deletion placeholder)
+- `documents` round-trip (web `/api/documents` route not present in this tree)
 
 **Acceptance met:**
 - [x] All 5 modules compile and register successfully
@@ -252,6 +283,7 @@ curl -X OPTIONS http://localhost:4000/api/users/me -H "Origin: http://localhost:
 - [x] Endpoints enforce authentication (Supabase JWT guard)
 - [x] Documents CRUD + enqueue works (tested via curl, 401 as expected)
 - [x] 4 backend flags added to config package
+- [x] Round-trip equality verified for user and both chat-history branches
 
 ---
 

@@ -189,7 +189,7 @@ async function main() {
   })
 
   if (diffs.length === 0) {
-    console.log('✅ PASS: Responses are identical (ignoring id/timestamps)\n')
+    console.log('✅ PASS: Responses are identical (ignoring timestamps)\n')
     process.exit(0)
   } else {
     console.log('❌ FAIL: Response differences:')
