@@ -243,6 +243,22 @@ Note: `parity:endpoint` takes `--service` (not a raw path) because web and
 Nest use different URLs for the same capability — the pairs are defined in
 `scripts/parity/endpoint-roundtrip.ts`.
 
+### Comparing latency
+
+```bash
+# Web baseline (pre-migration reference)
+pnpm baseline -- --count=20
+
+# Nest, compared against the recorded web p50
+pnpm baseline -- --target=nest --count=20
+```
+
+Both write to `docs/baselines.md`. The Nest run reports whether its p50 is
+within the Phase 3 bound (web p50 + 20%). Requests are serial, so run these
+while nothing else is driving the same provider — a run whose success rate falls
+below 80% is rejected rather than recorded, since a p50 computed from a handful
+of survivors looks normal but means nothing.
+
 ## Examples
 
 ### Example 1: Chat with SSE Streaming
