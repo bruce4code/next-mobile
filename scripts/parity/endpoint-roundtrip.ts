@@ -67,11 +67,52 @@ function deepEqual(a: unknown, b: unknown, path: string, opts: CompareOptions): 
   return diffs
 }
 
-async function fetchEndpoint(base: string, path: string, token: string) {
+/**
+ * The two backends authenticate differently and cannot be driven with the
+ * same credential:
+ *
+ *   web  — Supabase cookie session, read server-side via getUser()
+ *   nest — Authorization: Bearer <access token>
+ *
+ * Sending a Bearer token to web yields 401 (it never looks at the header), so
+ * each side gets the credential it actually understands. The cookie name is
+ * derived from the Supabase project ref, matching @supabase/ssr's convention.
+ */
+type Auth = { kind: 'bearer'; token: string } | { kind: 'cookie'; cookie: string }
+
+function supabaseCookieName(): string {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL ?? ''
+  const ref = url.match(/^https?:\/\/([^.]+)\./)?.[1]
+  if (!ref) {
+    throw new Error('Cannot derive Supabase project ref from SUPABASE_URL')
+  }
+  return `sb-${ref}-auth-token`
+}
+
+/**
+ * Build the cookie @supabase/ssr expects: base64-encoded session JSON under
+ * the project-scoped cookie name, prefixed with "base64-".
+ */
+function buildSessionCookie(token: string): string {
+  const session = {
+    access_token: token,
+    token_type: 'bearer',
+    expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    refresh_token: '',
+  }
+  const encoded = Buffer.from(JSON.stringify(session), 'utf-8').toString('base64')
+  return `${supabaseCookieName()}=base64-${encoded}`
+}
+
+async function fetchEndpoint(base: string, path: string, auth: Auth) {
   const url = `${base}${path}`
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
+  const headers: Record<string, string> =
+    auth.kind === 'bearer'
+      ? { Authorization: `Bearer ${auth.token}` }
+      : { Cookie: auth.cookie }
+
+  const res = await fetch(url, { headers })
 
   return {
     status: res.status,
@@ -123,8 +164,8 @@ async function main() {
   console.log(`Nest: ${nestBase}${pair.nest}${query}\n`)
 
   const [webRes, nestRes] = await Promise.all([
-    fetchEndpoint(webBase, `${pair.web}${query}`, token),
-    fetchEndpoint(nestBase, `${pair.nest}${query}`, token),
+    fetchEndpoint(webBase, `${pair.web}${query}`, { kind: 'cookie', cookie: buildSessionCookie(token) }),
+    fetchEndpoint(nestBase, `${pair.nest}${query}`, { kind: 'bearer', token }),
   ])
 
   console.log(`Web status:  ${webRes.status}`)
@@ -140,8 +181,10 @@ async function main() {
     process.exit(1)
   }
 
+  // Only timestamps are excused: they legitimately differ in serialization
+  // (Date vs ISO string) across the two stacks. id/email/etc must match —
+  // excluding them would hide exactly the drift this check exists to catch.
   const diffs = deepEqual(webRes.body, nestRes.body, 'root', {
-    ignoreFields: ['id', 'requestId'],
     ignoreTimestamps: true,
   })
 

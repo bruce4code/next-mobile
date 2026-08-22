@@ -6,17 +6,27 @@ export const ApiErrorSchema = z.object({
 })
 
 // User profile
+// Field set mirrors web GET /api/user exactly (apps/web/src/app/api/user/route.web.ts).
 export const UserProfileSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email().nullable(),
   name: z.string().max(100).nullable(),
-  avatarUrl: z.string().url().nullable().optional(),
+  bio: z.string().max(500).nullable(),
+  avatarUrl: z.string().nullable(),
+  location: z.string().max(200).nullable(),
   createdAt: z.string().datetime(),
 })
 
+// PUT response omits createdAt, matching web.
+export const UpdateUserProfileResponseSchema = UserProfileSchema.omit({ createdAt: true })
+
+// Mirrors web's UpdateProfileSchema, including the empty-string escape hatch
+// for clearing an avatar.
 export const UpdateUserProfileSchema = z.object({
-  name: z.string().max(100).optional(),
-  avatarUrl: z.string().url().max(2000).optional(),
+  name: z.string().max(100, "姓名不超过 100 个字符").optional(),
+  bio: z.string().max(500, "个人简介不超过 500 个字符").optional(),
+  avatarUrl: z.string().url("头像链接格式不正确").or(z.literal("")).optional(),
+  location: z.string().max(200, "位置不超过 200 个字符").optional(),
 })
 
 // Chat history
@@ -50,6 +60,7 @@ export const FeedbackRequestSchema = z.object({
 
 export type ApiError = z.infer<typeof ApiErrorSchema>
 export type UserProfile = z.infer<typeof UserProfileSchema>
+export type UpdateUserProfileResponse = z.infer<typeof UpdateUserProfileResponseSchema>
 export type UpdateUserProfile = z.infer<typeof UpdateUserProfileSchema>
 export type ChatHistoryQuery = z.infer<typeof ChatHistoryQuerySchema>
 export type ChatHistoryMessage = z.infer<typeof ChatHistoryMessageSchema>
