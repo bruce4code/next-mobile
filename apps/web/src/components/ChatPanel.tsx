@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import { User } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
 import { useTranslation } from 'react-i18next'
+import { backendConfig } from '@/lib/backend-config'
 
 const ChatMarkdown = dynamic(() => import('@/components/ChatMarkdown'), {
   loading: () => <div className="space-y-2">
@@ -288,12 +289,15 @@ export default function ChatPanel({
         body: JSON.stringify({
           messages: apiMessages,
           useRAG: true,
-          // 如果API需要，也可以传递 conversationId
-          // conversationId: convId 
+          conversationId: convId,
         }),
       })
 
-      if (!response.ok) throw new Error(`请求失败: ${response.status}`)
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { error?: unknown } | null
+        const error = typeof payload?.error === 'string' ? payload.error : `请求失败: ${response.status}`
+        throw new Error(error)
+      }
 
       const assistantMessage: Message = { 
         role: 'assistant', 
@@ -351,7 +355,7 @@ export default function ChatPanel({
         throw new Error('聊天响应未包含可显示的内容')
       }
 
-      if (fullAssistantContent && currentUser && convId) {
+      if (backendConfig.chat === 'web' && fullAssistantContent && currentUser && convId) {
         // 保存用户消息
         await fetch('/api/save-chat', {
           method: 'POST',

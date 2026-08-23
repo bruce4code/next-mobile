@@ -34,6 +34,16 @@ interface Document {
   ingestionError?: string
 }
 
+function readDocumentList(payload: unknown): Document[] {
+  if (Array.isArray(payload)) return payload as Document[]
+
+  if (payload && typeof payload === 'object' && Array.isArray((payload as { items?: unknown }).items)) {
+    return (payload as { items: Document[] }).items
+  }
+
+  throw new Error('文档列表返回格式无效')
+}
+
 const CATEGORIES = [
   { value: 'product', label: '产品', icon: Package },
   { value: 'faq', label: '常见问题', icon: HelpCircle },
@@ -82,7 +92,7 @@ export function KnowledgePageClient() {
       }
       
       const data = await response.json()
-      setDocuments(data)
+      setDocuments(readDocumentList(data))
     } catch (error) {
       toast.error(`获取文档失败: ${error instanceof Error ? error.message : '未知错误'}`)
     } finally {
@@ -233,7 +243,7 @@ export function KnowledgePageClient() {
       const response = await fetch(`/api/documents?${params.toString()}`, { cache: 'no-store' })
       if (!response.ok) throw new Error('搜索失败')
       const data = await response.json()
-      setDocuments(data)
+      setDocuments(readDocumentList(data))
     } catch {
       toast.error('搜索失败')
     } finally {
