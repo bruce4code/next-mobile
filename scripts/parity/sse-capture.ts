@@ -10,6 +10,7 @@
  */
 
 import 'dotenv/config'
+import { randomUUID } from 'node:crypto'
 import { nestAuthHeaders, resolveToken, webAuthHeaders } from './auth'
 
 interface SSEEvent {
@@ -225,6 +226,7 @@ async function main() {
   const requestBody = {
     messages: [{ role: 'user', content: prompt }],
     useRAG: false,
+    conversationId: randomUUID(),
   }
 
   console.log(`Capturing SSE streams for prompt: "${prompt}"`)

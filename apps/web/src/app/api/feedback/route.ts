@@ -4,6 +4,7 @@
 
 import { backendConfig, getApiUrl } from "@/lib/backend-config"
 import { getAccessToken } from "@/app/auth/server"
+import { proxyNestJsonResponse } from "@/lib/nest-proxy"
 
 export async function POST(req: Request) {
   if (backendConfig.feedback === "web") {
@@ -31,8 +32,5 @@ export async function POST(req: Request) {
     body: JSON.stringify(body),
   })
 
-  return new Response(await nestResponse.text(), {
-    status: nestResponse.status,
-    headers: { "Content-Type": "application/json" },
-  })
+  return proxyNestJsonResponse(nestResponse)
 }

@@ -38,7 +38,7 @@ export class ChatService {
   streamChatCompletion(userId: string, request: ChatRequest): Observable<MessageEvent> {
     return new Observable((subscriber) => {
       const requestId = randomUUID()
-      const conversationId = randomUUID()
+      const { conversationId } = request
 
       this.logger.log({
         event: "Chat.Started",
@@ -123,6 +123,7 @@ export class ChatService {
               role: "assistant",
               content: assistantContent,
               model,
+              metadata: { requestId, citations },
             },
           })
 

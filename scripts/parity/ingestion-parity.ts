@@ -150,7 +150,9 @@ async function processViaNestUntilDone(
       throw new Error(`Nest endpoint failed: HTTP ${response.status} ${await response.text()}`)
     }
 
-    const data = (await response.json()) as { processed: number }
+    const envelope = (await response.json()) as { data?: { processed: number } }
+    if (!envelope.data) throw new Error('Nest ingestion response is missing data')
+    const data = envelope.data
     if (data.processed === 0) {
       throw new Error(`Nest queue drained without processing document ${documentId}`)
     }
@@ -284,5 +286,4 @@ main()
     process.exit(1)
   })
   .finally(() => prisma.$disconnect())
-
 

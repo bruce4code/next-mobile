@@ -42,7 +42,9 @@ async function processViaHttp(): Promise<ProcessResult | null> {
     throw new Error(`HTTP ${response.status}: ${text}`)
   }
 
-  const data = await response.json() as { processed: number; results: ProcessResult[] }
+  const envelope = await response.json() as { data?: { processed: number; results: ProcessResult[] } }
+  if (!envelope.data) throw new Error('Nest ingestion response is missing data')
+  const data = envelope.data
   return data.results[0] ?? null
 }
 

@@ -94,7 +94,8 @@ async function requestNestRetrieval(query: string): Promise<NestRetrievalRespons
   })
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
 
-  const payload = await response.json() as Partial<NestRetrievalResponse>
+  const envelope = await response.json() as { data?: unknown }
+  const payload = envelope.data as Partial<NestRetrievalResponse>
   if (!Array.isArray(payload.documents) || !Array.isArray(payload.citations) || typeof payload.context !== 'string') {
     throw new Error('Nest retrieval returned an invalid response')
   }

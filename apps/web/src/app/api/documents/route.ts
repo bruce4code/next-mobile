@@ -9,6 +9,7 @@
 import type { NextRequest } from "next/server"
 import { backendConfig, getApiUrl } from "@/lib/backend-config"
 import { getAccessToken } from "@/app/auth/server"
+import { proxyNestJsonResponse } from "@/lib/nest-proxy"
 
 const unauthorized = () =>
   new Response(JSON.stringify({ error: "未登录" }), {
@@ -49,10 +50,7 @@ async function forward(req: NextRequest, method: "GET" | "POST" | "PUT" | "DELET
 
   const response = await fetch(getApiUrl("documents", path), init)
 
-  return new Response(await response.text(), {
-    status: response.status,
-    headers: { "Content-Type": "application/json" },
-  })
+  return proxyNestJsonResponse(response)
 }
 
 export async function GET(req: NextRequest) {

@@ -150,7 +150,8 @@ async function main() {
   // Only timestamps are excused: they legitimately differ in serialization
   // (Date vs ISO string) across the two stacks. id/email/etc must match —
   // excluding them would hide exactly the drift this check exists to catch.
-  const diffs = deepEqual(webRes.body, nestRes.body, 'root', {
+  const nestBody = isNestSuccessEnvelope(nestRes.body) ? nestRes.body.data : nestRes.body
+  const diffs = deepEqual(webRes.body, nestBody, 'root', {
     ignoreTimestamps: true,
   })
 
@@ -163,6 +164,12 @@ async function main() {
     console.log()
     process.exit(1)
   }
+}
+
+function isNestSuccessEnvelope(value: unknown): value is { code: 'OK'; error: null; data: unknown } {
+  if (typeof value !== 'object' || value === null) return false
+  const envelope = value as { code?: unknown; error?: unknown }
+  return envelope.code === 'OK' && envelope.error === null && 'data' in envelope
 }
 
 main().catch(err => {

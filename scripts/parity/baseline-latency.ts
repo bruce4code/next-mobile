@@ -12,6 +12,7 @@
  */
 
 import 'dotenv/config'
+import { randomUUID } from 'node:crypto'
 import { writeFileSync, existsSync, readFileSync } from 'fs'
 import { nestAuthHeaders, resolveToken, webAuthHeaders } from './auth'
 
@@ -37,6 +38,7 @@ async function measureLatency(
   const body = JSON.stringify({
     messages: [{ role: 'user', content: 'Hello' }],
     useRAG: false,
+    conversationId: randomUUID(),
   })
 
   for (let i = 0; i < count; i++) {

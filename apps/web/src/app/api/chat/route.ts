@@ -35,6 +35,15 @@ export async function POST(req: Request) {
     body: JSON.stringify(body),
   })
 
+  if (!nestResponse.ok) {
+    return new Response(nestResponse.body, {
+      status: nestResponse.status,
+      headers: {
+        "Content-Type": nestResponse.headers.get("Content-Type") ?? "application/json",
+      },
+    })
+  }
+
   // Return SSE stream from Nest
   return new Response(nestResponse.body, {
     status: nestResponse.status,

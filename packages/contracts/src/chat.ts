@@ -8,6 +8,9 @@ export const ChatMessageSchema = z.object({
 export const ChatRequestSchema = z.object({
   messages: z.array(ChatMessageSchema).min(1).max(30),
   useRAG: z.boolean().optional().default(true),
+  // The browser owns the conversation identity. Nest must persist against the
+  // same id so its records remain visible through the existing history routes.
+  conversationId: z.string().min(1).max(128),
 }).superRefine(({ messages }, context) => {
   const totalCharacters = messages.reduce((total, message) => total + message.content.length, 0)
   if (totalCharacters > 100_000) {
