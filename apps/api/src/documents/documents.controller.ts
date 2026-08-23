@@ -35,7 +35,7 @@ export class DocumentsController {
   async getDocument(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     const doc = await this.documents.get(user.id, id)
     if (!doc) {
-      throw new NotFoundException({ error: "文档不存在" })
+      throw new NotFoundException({ error: "文档不存在", code: "DOCUMENT_NOT_FOUND" })
     }
     return doc
   }
@@ -67,7 +67,7 @@ export class DocumentsController {
 
     const doc = await this.documents.update(user.id, id, data)
     if (!doc) {
-      throw new NotFoundException({ error: "文档不存在" })
+      throw new NotFoundException({ error: "文档不存在", code: "DOCUMENT_NOT_FOUND" })
     }
     return doc
   }
@@ -76,7 +76,7 @@ export class DocumentsController {
   async deleteDocument(@CurrentUser() user: AuthenticatedUser, @Param("id") id: string) {
     const deleted = await this.documents.delete(user.id, id)
     if (!deleted) {
-      throw new NotFoundException({ error: "文档不存在" })
+      throw new NotFoundException({ error: "文档不存在", code: "DOCUMENT_NOT_FOUND" })
     }
     return { success: true }
   }

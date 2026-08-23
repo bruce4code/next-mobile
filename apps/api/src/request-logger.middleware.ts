@@ -3,6 +3,7 @@ import { Injectable, Logger, type NestMiddleware } from "@nestjs/common"
 type RequestLike = {
   method: string
   originalUrl: string
+  requestId?: string
 }
 
 type ResponseLike = {
@@ -18,7 +19,7 @@ export class RequestLoggerMiddleware implements NestMiddleware {
     const startedAt = performance.now()
     response.on("finish", () => {
       const durationMs = Math.round(performance.now() - startedAt)
-      this.logger.log(`${request.method} ${request.originalUrl} ${response.statusCode} ${durationMs}ms`)
+      this.logger.log(`${request.method} ${request.originalUrl} ${response.statusCode} ${durationMs}ms requestId=${request.requestId ?? "unknown"}`)
     })
     next()
   }

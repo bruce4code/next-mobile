@@ -2,7 +2,17 @@ import { z } from "zod"
 
 export const ApiErrorSchema = z.object({
   error: z.string(),
+  code: z.string().min(1),
+  data: z.null(),
+  requestId: z.string().uuid(),
   details: z.unknown().optional(),
+})
+
+export const ApiSuccessSchema = z.object({
+  error: z.null(),
+  code: z.literal("OK"),
+  data: z.unknown(),
+  requestId: z.string().uuid(),
 })
 
 // User profile
@@ -74,6 +84,7 @@ export const FeedbackRequestSchema = z.object({
 })
 
 export type ApiError = z.infer<typeof ApiErrorSchema>
+export type ApiSuccess = z.infer<typeof ApiSuccessSchema>
 export type UserProfile = z.infer<typeof UserProfileSchema>
 export type UpdateUserProfileResponse = z.infer<typeof UpdateUserProfileResponseSchema>
 export type UpdateUserProfile = z.infer<typeof UpdateUserProfileSchema>

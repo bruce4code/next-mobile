@@ -12,6 +12,7 @@ import { ChatModule } from "./chat/chat.module"
 import { FeedbackModule } from "./feedback/feedback.module"
 import { IngestionJobsModule } from "./ingestion-jobs/ingestion-jobs.module"
 import { DocumentsModule } from "./documents/documents.module"
+import { RequestIdMiddleware } from "./request-id.middleware"
 import { RequestLoggerMiddleware } from "./request-logger.middleware"
 
 @Module({
@@ -36,6 +37,6 @@ import { RequestLoggerMiddleware } from "./request-logger.middleware"
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(RequestLoggerMiddleware).forRoutes("*")
+    consumer.apply(RequestIdMiddleware, RequestLoggerMiddleware).forRoutes("*")
   }
 }

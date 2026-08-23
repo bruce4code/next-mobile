@@ -1,9 +1,13 @@
 import { NestFactory } from "@nestjs/core"
+import { ApiExceptionFilter } from "./api-exception.filter"
+import { ApiResponseInterceptor } from "./api-response.interceptor"
 import { AppModule } from "./app.module"
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule)
   app.setGlobalPrefix("api")
+  app.useGlobalFilters(new ApiExceptionFilter())
+  app.useGlobalInterceptors(new ApiResponseInterceptor())
   app.enableShutdownHooks()
 
   // CORS configuration for browser-direct requests (Phase 2+)
