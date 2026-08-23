@@ -20,6 +20,27 @@ Move RAG, ingestion, and API orchestration from Next.js route handlers to NestJS
 
 ## Completed Slices
 
+### 0. Nest API Error Contract
+
+- Status: implemented; static verification complete, live HTTP verification pending
+
+Changes:
+
+- Every Nest request receives a server-generated UUID in `X-Request-Id`, including failures.
+- A global response interceptor and exception filter normalize JSON responses to `{ code, error, data, requestId }`: success uses `code: "OK"`, `error: null`, and resource data; failure uses `data: null` and may include `details`. HTTP status remains authoritative and unexpected 5xx responses do not expose internals.
+- Chat SSE retains its existing event protocol. During migration, Next proxies unwrap successful Nest `data` so existing browser pages preserve their legacy resource shapes, but forward Nest errors unchanged. `DOCUMENT_NOT_FOUND` is the first resource-specific code; generic status-derived codes cover validation, authentication, authorization, conflict, rate-limit, service-unavailable, and internal failures.
+
+Rollback:
+
+- Remove the global filter and request ID middleware. This changes no database state, but consumers relying on `code` should be reverted in the same deployment.
+
+Verification:
+
+- `pnpm --filter @ai-arg/contracts build` passed.
+- `pnpm --filter @ai-arg/api build` passed.
+- Targeted web ESLint for the Nest JSON proxy routes passed.
+- Nest is listening on port `4000`; live request verification remains pending because the current execution sandbox cannot reach the host listener.
+
 ### 1. Monorepo Foundation
 
 - Branch: `codex/monorepo-foundation`
@@ -241,6 +262,26 @@ Scope boundary:
 Rollback:
 
 - Revert this slice; `RAG_BACKEND=legacy` never calls Nest and is unaffected.
+
+### 14. Nest Chat Persistence Continuity
+
+- Branch: `codex/nest-monorepo-migration`
+- Status: implemented; local end-to-end verification pending
+
+Changes:
+
+- Added the browser-generated `conversationId` to the shared chat request contract.
+- `ChatPanel` forwards that ID to `/api/chat` and retains legacy `/api/save-chat` writes only when `CHAT_BACKEND=web`.
+- Nest now persists the user and assistant messages under the supplied ID, retaining `requestId` and citations in the assistant metadata.
+- Updated direct Nest SSE parity and latency scripts to include a unique conversation ID.
+
+Expected result:
+
+- With `CHAT_BACKEND=nest`, one send yields exactly two database rows, both owned by the frontend conversation ID; no browser calls to `/api/save-chat` occur.
+
+Rollback:
+
+- Set `NEXT_PUBLIC_CHAT_BACKEND=web` and restart the web process. The browser resumes legacy `/api/save-chat` persistence without a database migration.
 
 ## Next Slice: Ingestion Cutover
 

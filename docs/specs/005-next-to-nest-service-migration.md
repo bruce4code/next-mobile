@@ -1,6 +1,6 @@
 # 005 Next Service Migration to Nest
 
-Status: Draft
+Status: Implementing (Phase 0–4 code landed; acceptance gaps in Phase 5+ open — see Acceptance Criteria and Summary)
 
 ## Goal
 
@@ -36,11 +36,11 @@ Auth model gap: web uses Supabase cookie sessions (`getUser()` from SSR cookies)
 
 ### Target architecture
 
-- Nest owns all API surface. Next serves pages and client components only, calling `NEST_API_URL` with `Authorization: Bearer <client session token>` (obtained from supabase-js `getSession()`). supabase-js handles token refresh on the client, and logout clears the local session, so no server-side proxy or cookie hand-off is required.
-- CORS: `apps/api/src/main.ts` currently calls only `setGlobalPrefix("api")` with no `enableCors`. Browser-direct calls require `app.enableCors()` before Phase 2 with: allowed origins from a new `WEB_ORIGINS` env (comma-separated, no wildcard — credentials are not used but origins stay explicit), allowed headers `Authorization, Content-Type`, allowed methods `GET, POST, PUT, DELETE, OPTIONS`, and `exposedHeaders: ['X-Request-Id']`. Exposing `X-Request-Id` is mandatory, not cosmetic: ChatPanel reads it to correlate feedback, and without the expose header the browser hides it and the feedback `requestId` link breaks.
-- Streaming: Nest `chat` module returns SSE over platform-express `@Res()` streaming, replicating the current wire protocol exactly.
-- During the transition, web routes remain in place as rollback; a per-slice feature flag on the client/server selects web vs Nest target. Web routes are deleted in Phase 4.
-- `RAG_BACKEND` remains meaningful only while web chat is active; when chat moves to Nest, retrieval is Nest-native (the `nest` path), and `legacy`/`shadow` retire with the web chat route in Phase 4.
+- Nest owns all API surface. Next serves pages and client components, and its `/api/*` paths act as **server-side route proxies** (Phase 4): when a `*_BACKEND` flag is `nest`, the web route forwards to `NEST_API_URL` with the user's Supabase access token from the cookie session (`getAccessToken()`) and pipes the response/SSE body back. The browser keeps calling the web origin; the token never enters client JS (see Decisions 1).
+- CORS: `apps/api/src/main.ts` enables CORS with `WEB_ORIGINS` (comma-separated, no wildcard), `methods: GET, POST, PUT, DELETE, OPTIONS`, `allowedHeaders: Authorization, Content-Type`, `exposedHeaders: ['X-Request-Id']`, `credentials: false`. This was added for direct Nest access (parity scripts, future direct calls); the current proxy architecture does not require browser → Nest CORS. Nest now assigns a UUID `X-Request-Id` to every response.
+- Streaming: Nest `chat` module streams SSE via the `@Sse()` decorator + `Observable<MessageEvent>` (see Decision 2), replicating the current wire protocol exactly.
+- During the transition, web implementation routes (`route.web.ts`) remain in place as rollback; the per-slice flag selects web vs Nest target through the proxy. Web implementation routes are deleted in Phase 5.
+- `RAG_BACKEND` remains meaningful only while web chat is active; when chat moves to Nest, retrieval is Nest-native (the `nest` path), and `legacy`/`shadow` retire with the web chat route in Phase 5.
 
 ### Phases (each independently flag-gated and rollback-safe)
 
@@ -54,97 +54,122 @@ Auth model gap: web uses Supabase cookie sessions (`getUser()` from SSR cookies)
 **Phase 2 — Non-streaming API cutover.** New Nest modules, each behind its own flag (default `web`):
 
 - `users` module: `GET /api/users/me`, `PUT /api/users/me` (profile) (flag `USER_BACKEND`). `POST /api/register` stays in web as the Supabase post-signup sync path and is out of scope for this migration (see Decisions).
-- `chat-history` module: `POST /api/chat-history/save`, `GET /api/chat-history` (flag `CHAT_HISTORY_BACKEND`), using `SaveChatMessageSchema` and `ChatHistoryQuerySchema` already in contracts.
-- `feedback` module: `POST /api/feedback` with `FeedbackRequestSchema` (new), forwarding to the same LangSmith `Client` and correlating by `requestId` (flag `FEEDBACK_BACKEND`).
-- `documents` module: `GET/POST/PUT/DELETE /api/documents` + enqueue + Supabase archive. Port `enqueueDocumentIngestion`/`enqueueDocumentReindex` (from web `lib/ingestion.ts`) and `archiveDocumentSource`/`deleteDocumentSources` (from web `lib/sourceStorage.ts`) into Nest (flag `DOCUMENTS_BACKEND`). Web pages switch to Nest URLs with client session token.
-  - Storage credential model (decided, see Decisions 6): web archiving works today because `lib/sourceStorage.ts:17` builds a Supabase client from the SSR cookie session, so writes carry the user's identity and satisfy RLS. Nest's `SupabaseAuthService` holds a single anon-key client with `persistSession: false` and no user session, so reusing it for storage writes would be rejected by RLS. Nest therefore constructs a **per-request** Supabase client from the caller's verified access token (`createClient(url, anonKey, { global: { headers: { Authorization: \`Bearer ${token}\` } } })`) for archive/list/remove, preserving the existing bucket and `userId/documentId` object-naming rules and keeping tenant isolation enforced by the same RLS policies as today. No service-role key is introduced.
+- `chat-history` module: **read-only** `GET /api/chat-history` only (flag `CHAT_HISTORY_BACKEND`), using `ChatHistoryQuerySchema`. There is **no** `POST /api/chat-history/save` — `SaveChatMessageSchema` is defined in contracts but referenced nowhere, and web `/api/save-chat` has no `route.web.ts`, no proxy, and no flag. `ChatPanel` selects the single persistence owner: legacy save-chat for `CHAT_BACKEND=web`, Nest chat writes for `CHAT_BACKEND=nest` (see Decisions 8).
+- `feedback` module: `POST /api/feedback` with `FeedbackRequestSchema` (flag `FEEDBACK_BACKEND`). It calls LangSmith, but **not** with the same payload as web: web writes `outputs.verdict`/`outputs.comment`, `extra.metadata: { requestId, userId, feedbackType }`, and `start_time`/`end_time`; Nest writes `outputs: {}`, `inputs: { requestId, score, comment }`, and `extra.metadata: { userId, feedbackScore, hasComment }` with no timestamps — so `requestId` lands in `inputs`, not `metadata`, and a dashboard search on `metadata.requestId` will not find it (see Decisions 8).
+- `documents` module: `GET/POST/PUT/DELETE /api/documents` + enqueue (flag `DOCUMENTS_BACKEND`). Enqueue is **not** a faithful port of web `enqueueDocumentIngestion`/`enqueueDocumentReindex` — Nest inlines its own transaction with diverging semantics: `idempotencyKey` is `create-${checksum}` (web uses the request's `idempotency-key` header), there is no `userId + idempotencyKey` de-dup, and reindex does not cancel in-flight `QUEUED`/`RETRY` jobs.
+  - **Supabase archiving is absent in Nest entirely.** Web `archiveDocumentSource` writes the source to Storage and backfills `sourceUri`; Nest `documents.service.ts` `create`/`update` never archive and never set `sourceUri`, and `deleteFromStorage` only logs. The per-request helpers `createUserSupabaseClient(token)`/`parseStorageUri` in `apps/api/src/storage/` are **defined but never called** (the module also has an unused `createClient` import). So there is no Storage write path to gate on, not just a deletion placeholder — keep `DOCUMENTS_BACKEND=web` until the whole chain is implemented.
 - `ingestion` module: add `GET /api/ingestion-jobs/:id` for job status (flag `DOCUMENTS_BACKEND`, same slice).
 
-Client switchover: a shared env-driven API base (e.g., `NEXT_PUBLIC_API_BASE`) + per-capability flag lets the Next client components call web or Nest; parity is verified per endpoint before flipping.
+Client switchover: the proxy layer reads `NEXT_PUBLIC_*_BACKEND` and `NEXT_PUBLIC_NEST_API_URL` (the draft's `NEXT_PUBLIC_API_BASE` name does not exist in code); the browser keeps calling the web origin and the web route proxies server-side (see Decisions 1) — web pages do **not** switch to Nest URLs with a client token.
 
-**Phase 3 — Chat streaming cutover.** New Nest `chat` module (`POST /api/chat`, SSE), porting from `api/chat/route.ts`:
+**Phase 3 — Chat streaming cutover.** New Nest `chat` module (`POST /api/chat`, SSE), as implemented in `apps/api/src/chat/`:
 
-- Request validation via the shared `ChatRequestSchema` (replacing the web-local inline schema).
-- RAG orchestration: query rewrite → keyword gate (Jieba) → retrieval (Nest-native) → context injection → abstention decision; enforcement via `RAG_ABSTENTION_MODE` unchanged.
-- Model candidate fallback: `resolveModelCandidates`, 401/403 short-circuit, 429 mapping — unchanged semantics.
-- SSE transport: manual platform-express `@Res()` streaming (`res.setHeader`/`res.flushHeaders`/`res.write`/`res.end`), not `@nestjs/sse`, to keep byte-level control over the frozen protocol.
-- SSE transform: `metadata` event (`requestId`, `model`, `citations`, optional `ragDecision`/`ragAbstainReason`) → delta events (`{choices:[{delta:{content}}], model}`) → `data: [DONE]`; `error` event on stream failure; abstention response uses `model: 'rag-abstention'`. Wire protocol byte-identical to current ChatPanel expectations.
-- LangSmith: `wrapOpenAI` + `langsmithExtra` metadata (`userId`, `requestId`, `modelName`, `isRAG`, `ragDocCount`, `citationIds`, `messageCount`, `environment`, tags) preserved in Nest. Web and Nest share the same `.env` credentials and project during migration; Nest traces carry a `service: 'nest'` tag so web and Nest traces remain co-queryable, and Nest becomes the sole tracer after Phase 4.
-- `requestId` propagation: the operational-checklist item from `docs/next-nest-migration.md` — generate in Nest chat, thread through retrieval and LLM, returned in `X-Request-Id`; structured logging records user/model/backend/doc-count/citation-ids/latency.
-- Flag `CHAT_BACKEND=web|nest`; ChatPanel switches base URL + attaches the client session Bearer token. `nest` resolves per-user rather than globally, reusing the existing allowlist mechanism from `resolveRagBackend` (`apps/web/src/app/api/chat/route.ts:45-60`): with `CHAT_BACKEND=nest`, admin emails (`isAdminEmail`) and ids in `CHAT_NEST_INTERNAL_USER_IDS` get Nest, everyone else stays on web until the allowlist is removed. A plain boolean flag cannot express the internal-user soak that Phase 3's flip criterion requires; this is user-level gating, not percentage rollout, so it stays consistent with the Non-goals.
-- Nest needs `langsmith` added to `apps/api/package.json` (web-only today) for `wrapOpenAI`; `openai` is already a dependency there.
+- Transport: `@Sse()` decorator + `Observable<MessageEvent>` (see Decision 2); wire format verified against web by `scripts/parity/sse-capture.ts` (metadata first → provider chunks → `[DONE]`, error path, `[DONE]` on both success and error).
+- Request validation via the shared `ChatRequestSchema` (replacing the web-local inline schema). Auth via the global Supabase bearer guard (401 without token).
+- RAG orchestration (as implemented, `retrieveContext`): calls `RetrievalService.hybridSearch` directly with the **last user message**, `topK: 5`, `minSimilarity: 0.5`. On `ANSWER` it builds its own context (`【引用N】` + title + content, joined) and prepends a `system` message with `参考以下知识库内容回答用户问题：\n\n…` at the start of the message array; citations carry `citationId: ${index+1}`. On `ABSTAIN` it records `ragAbstainReason` for the metadata event only.
+  - Documented deviations from web chat (tracked as Phase 5+ parity gaps, see Decisions 8): no query rewrite, no Jieba keyword gate, no `<evidence>`/`[S1]` prompt format, no `RAG_ABSTENTION_MODE` enforcement (Nest always streams the model; web short-circuits to the fixed abstention response when `enforce`), and `minSimilarity` differs (0.5 vs web's 0.35 default).
+- Model fallback: `resolveModelCandidates()` (shared `chat/llm-config.ts`, mirroring web's key/baseURL/model precedence) tried in order; 401/403 short-circuits; all-candidates-failed throws and becomes the fixed stream error. Parity has not yet exercised the fallback/429 path (Phase 5+).
+- SSE transform: `metadata` event `{type, requestId, model, citations, ragDecision?, ragAbstainReason?}` first, then provider chunks forwarded as-is with the resolved model (`{...chunk, model}` — ChatPanel reads `choices[0].delta.content`), then `data: [DONE]`; on failure an `error` event with the fixed message `模型流式响应中断，请稍后重试` followed by `[DONE]`. The HTTP response also carries an independent server request ID in `X-Request-Id`.
+- Persistence: the browser supplies `conversationId` in the shared chat request. Nest writes user + assistant rows to `OpenRouterChat` under that same ID and saves the assistant `requestId`/citations as metadata. `ChatPanel` calls legacy `/api/save-chat` only when `CHAT_BACKEND=web`, so the Nest path has one persistence owner and remains visible through the existing history routes.
+- LangSmith: `wrapOpenAI` when `LANGSMITH_API_KEY`/`LANGCHAIN_API_KEY` is set; `langsmithExtra` metadata carries `{ userId, conversationId, requestId, useRAG, citationCount }`. Web and Nest share the same `.env` credentials and project during migration (see Decisions 4).
+- Flag `CHAT_BACKEND=web|nest` (server-side config + `NEXT_PUBLIC_CHAT_BACKEND`). Per-user gating was intended via the Phase 4 rollout layer, but `rollout.ts`'s `getUserBackend`/`api-client`/`backend-monitoring` are **dead code** — every proxy reads only the global `backendConfig.<service>` flag, so there is no per-user soak, percentage, or allowlist in effect (see Decisions 7).
+- Dependencies added to `apps/api`: `openai`, `langsmith`, `@supabase/supabase-js`.
 
-**Phase 4 — Legacy retirement.** After each flag is stable: delete web routes (`/api/chat`, `/api/save-chat`, `/api/get-chat`, `/api/feedback`, `/api/user`, `/api/documents`, `/api/ingestion/process`, `/api/ingestion-jobs/[id]`; `/api/register` stays), remove web `lib/rag.ts` legacy retrieval + `lib/ingestion.ts` processor/enqueue, drop `RAG_BACKEND=legacy|shadow` paths and the shadow-writing call, prune web-only deps (`@node-rs/jieba`, `@langchain/textsplitters`, `openai`, `langsmith`), and clean up now-unused contracts. The `rag-shadow` admin page becomes a read-only historical view and the `RagShadowComparison` table is retained (no migration); shadow writes stop once web chat retires.
+**Phase 4 — Web cutover switches.** As implemented, this phase is the routing layer, not retirement. Web keeps its `/api/*` paths and **proxies server-side** to web or Nest per flag (see Decisions 1):
+
+- `backend-config.ts`: reads `NEXT_PUBLIC_*_BACKEND` (chat, user, chatHistory, feedback, documents, ingestion) and `NEXT_PUBLIC_NEST_API_URL`, defaults all to `web`.
+- Route proxies (`route.ts` + original `route.web.ts`) for `/api/chat`, `/api/user`, `/api/get-chat`, `/api/feedback`, `/api/documents`, `/api/ingestion-jobs/:id`: when the flag is `nest`, forward to Nest with the user's Supabase access token (server-side `getAccessToken()` from the cookie session) and pipe the response/SSE body back.
+- `rollout.ts` + `api-client.ts` + `backend-monitoring.ts`: per-user consistent hashing (`getUserBackend`), percentage rollout, allowlist/blocklist, a token-injecting fetch wrapper, and latency logging all exist as scaffolding but have **zero callers** — no proxy invokes them, so routing is decided solely by the global `backendConfig.<service>` env flag (`NEXT_PUBLIC_*_BACKEND`). The "per-user soak" capability is not actually wired. `BACKEND-ROUTING-GUIDE.md` documents the intended rollout model.
+- No user-visible change at defaults: all flags default `web`, so the browser keeps cookie-auth web behavior; `register` stays a web route (see Decisions 5).
+
+**Phase 5 — Retirement and parity hardening (pending, acceptance gaps).** After flags are stable and the Phase 5+ gaps below close: delete the web implementation routes (`route.web.ts` and the proxy indirection, or point proxies straight at Nest and remove the web originals), remove web `lib/rag.ts` legacy retrieval + `lib/ingestion.ts` processor/enqueue, drop `RAG_BACKEND=legacy|shadow` paths and the shadow-writing call, prune web-only deps (`@node-rs/jieba`, `@langchain/textsplitters`, `openai`, `langsmith`), and clean up now-unused contracts. The `rag-shadow` admin page becomes a read-only historical view and the `RagShadowComparison` table is retained (no migration); shadow writes stop once web chat retires.
 
 ## Contract
 
-- Reused from `packages/contracts`: `ChatRequestSchema`, `SaveChatMessageSchema`, `ChatHistoryQuerySchema`, `ChatStreamMetadataSchema`, `CreateDocumentSchema`, `UpdateDocumentSchema`, `DocumentQuerySchema`, `ProcessIngestionRequestSchema`, `RetrievalDecisionSummarySchema`, `ApiErrorSchema`.
-- New schemas to add: `FeedbackRequestSchema` (`requestId: uuid`, `score: 0|1`, `comment?`), `UserProfileSchema` (GET) and `UpdateUserProfileSchema` (PUT, matching web limits), `DocumentListResponseSchema` (items + total, matching web response shape), and `IngestionJobStatusSchema` (the fields web `/api/ingestion-jobs/[id]` selects).
-- `ChatStreamMetadataSchema` extension (required): the existing schema in `packages/contracts/src/chat.ts` covers only `type`/`requestId`/`model`/`citations`, but the abstention path in `apps/web/src/app/api/chat/route.ts:141-148` also emits `ragDecision` and `ragAbstainReason`, with `model: 'rag-abstention'`. Add both as optional fields (`ragDecision: 'ANSWER' | 'ABSTAIN'`, `ragAbstainReason: RetrievalAbstainReasonSchema`) so the frozen protocol is fully described by the contract rather than partly by the web implementation.
-- `ChatHistoryResponseSchema` must cover **both** shapes web returns, not just the message page. With `conversationId`, web returns `{ messages, nextCursor, nextCursorCreatedAt, hasMore }` (`apps/web/src/app/api/get-chat/route.ts:52-57`); without it, the same endpoint returns a conversation *list* with a different shape. Model this as two named schemas (`ChatHistoryMessagesResponseSchema`, `ChatHistoryConversationsResponseSchema`) and read the list branch off the web route before writing it — a single "messages + cursor" schema would silently break the no-`conversationId` caller.
-- SSE wire protocol: frozen — consumers (ChatPanel) tolerate absent optional fields; Nest must not reorder or rename events.
+- Reused from `packages/contracts`: `ChatRequestSchema`, `ChatHistoryQuerySchema`, `ChatStreamMetadataSchema`, `CreateDocumentSchema`, `UpdateDocumentSchema`, `DocumentQuerySchema`, `ProcessIngestionRequestSchema`, `RetrievalDecisionSummarySchema`, `ApiErrorSchema`. `SaveChatMessageSchema` is **defined but unused** (no Nest save endpoint; web `save-chat` keeps its own inline Zod schema and is not proxied).
+- Schemas added (implemented): in `packages/contracts/src/http.ts` — `UserProfileSchema`, `UpdateUserProfileSchema`, `UpdateUserProfileResponseSchema` (PUT omits `createdAt`, matching web), `ChatHistoryMessageSchema`, `ChatHistoryMessagesResponseSchema` (paged message branch), `ChatHistoryConversationSchema` + `ChatHistoryConversationsResponseSchema` (bare-array conversation list branch — the two shapes web returns are modelled separately), `FeedbackRequestSchema`; in `packages/contracts/src/documents.ts` — `DocumentItemSchema`, `DocumentListResponseSchema`, `IngestionJobStatusSchema`; in `packages/contracts/src/chat.ts` — `ChatStreamMetadataSchema` extended with optional `ragDecision` (`ANSWER`/`ABSTAIN`) and `ragAbstainReason` (`RetrievalAbstainReasonSchema`) so the abstention metadata event is covered by the contract.
+- SSE wire protocol: frozen — consumers (ChatPanel) tolerate absent optional fields; Nest must not reorder or rename events. Nest chat emits: `metadata` event (with `ragDecision`/`ragAbstainReason` only when a decision exists) → provider delta chunks forwarded with the resolved model → `data: [DONE]`; on failure an `error` event with the fixed message then `[DONE]`. The abstention response web produces (`model: 'rag-abstention'` short-circuit under `RAG_ABSTENTION_MODE=enforce`) is **not** reproduced by Nest chat yet (see Decisions 8).
 - Auth: Nest endpoints use the existing global Supabase bearer guard; `POST /api/ingestion/process` keeps the worker-secret check; `POST /api/chat` requires a valid user token and every query is tenant-scoped by `user.id`.
-- Error envelope: `ApiErrorSchema` shape `{ error, details? }` for all Nest endpoints.
+- Response envelope: all non-SSE Nest JSON endpoints conform to one envelope. Success is `{ code: "OK", error: null, data, requestId }`; failure is `{ code, error, data: null, requestId, details? }`. HTTP status retains transport semantics; `code` is a stable uppercase string (`VALIDATION_ERROR`, `UNAUTHORIZED`, and so on), with resource-specific codes such as `DOCUMENT_NOT_FOUND` supplied by the owning controller. Unexpected 5xx failures expose no internal details. Next's transition proxies unwrap successful `data` to preserve the legacy browser-facing contracts, while preserving Nest errors intact. Chat SSE retains its separate stream protocol.
 
 ## Data And Security
 
 - No Prisma migrations required; `User`, `OpenRouterChat`, `Document`, `DocumentChunk`, `IngestionJob`, `EmbeddingCache`, `RagShadowComparison` all exist.
 - Tenant isolation: every read/write in new modules filters by the verified token's `user.id` (mirroring the existing retrieval SQL guards).
-- Supabase storage archiving moves to Nest with the same bucket/object-naming rules and delete behavior (source files never exposed to other tenants), using the per-request token-scoped client described in Phase 2 so RLS keeps enforcing isolation.
-- LangSmith feedback in Nest correlates by `requestId`; routine logs must not include raw query text, document content, or raw score arrays (per spec 004).
-- No new secrets beyond the existing `INGESTION_WORKER_SECRET`; Nest reads the same shared env (`.env`) as web today. This holds only because storage writes reuse the caller's token — no service-role key is added. `WEB_ORIGINS` is new configuration but not a secret.
+- Supabase storage archiving has **not** moved to Nest. Web `archiveDocumentSource` writes the source and backfills `sourceUri`; Nest documents `create`/`update` never archive, never set `sourceUri`, and `deleteFromStorage` only logs. The per-request token-scoped helpers exist (`createUserSupabaseClient`/`parseStorageUri`) but are unused, and the documents service carries an unused `createClient` import. `DOCUMENTS_BACKEND` must stay `web` until the full Storage chain (archive → `sourceUri` backfill → delete) is implemented with RLS via the caller's token.
+- LangSmith feedback payloads differ between web and Nest (web: `outputs.verdict`, `metadata.requestId`, `start_time`/`end_time`; Nest: `outputs: {}`, `metadata.userId/feedbackScore/hasComment`, `requestId` in `inputs` only). The spec's "correlating by requestId" does not hold in the dashboard for Nest feedback — a Phase 5+ item; routine logs must not include raw query text, document content, or raw score arrays (per spec 004).
+- No new secrets beyond the existing `INGESTION_WORKER_SECRET`; Nest reads the same shared env (`.env`) as web today. No service-role key is added — storage archiving in Nest is not implemented at all, so the RLS-via-caller-token model (Decisions 6) is still prospective, not deployed. `WEB_ORIGINS` is new configuration but not a secret.
 - CORS is a security boundary here, not plumbing: Nest goes from same-origin-only to browser-reachable, so `WEB_ORIGINS` must be an explicit allowlist with no wildcard origin.
 
 ## Feature Flags And Rollback
 
 | Phase | Flag | Default | Flip after |
 |---|---|---|---|
-| 0 | — (harness) | — | worker import fixed, parity scripts runnable |
-| 1 | `INGESTION_BACKEND=web\|nest` | `web` | worker runtime parity on real DB |
-| 2 | `USER_BACKEND`, `CHAT_HISTORY_BACKEND`, `FEEDBACK_BACKEND`, `DOCUMENTS_BACKEND` | `web` | per-endpoint parity (round-trip equality) |
-| 3 | `CHAT_BACKEND=web\|nest` (+ `CHAT_NEST_INTERNAL_USER_IDS` allowlist) | `web` | SSE byte-parity fixture + internal-user soak |
-| 4 | — (retirement) | — | each flag stable in prod for a soak period |
+| 0 | — (harness) | — | worker standalone + parity scripts runnable |
+| 1 | `INGESTION_BACKEND=web\|nest` | `web` | worker runtime parity on real DB (verified) |
+| 2 | `USER_BACKEND`, `CHAT_HISTORY_BACKEND`, `FEEDBACK_BACKEND`, `DOCUMENTS_BACKEND` | `web` | per-endpoint parity — user + chat-history verified; `DOCUMENTS_BACKEND` stays `web` (gaps open) |
+| 3 | `CHAT_BACKEND=web\|nest` | `web` | SSE structural parity verified; abstention/fallback paths and Nest latency not yet exercised |
+| 4 | same flags + `NEXT_PUBLIC_*` copies + `NEXT_PUBLIC_NEST_ROLLOUT_*` | `web` | proxies deployed; rollout scaffolding present but **not wired** (no callers) |
+| 5 | — (retirement) | — | each flag stable in prod + Phase 5+ gaps closed |
 
-Flag plumbing: `packages/config/src/index.ts` currently validates only `NODE_ENV` and `API_PORT`, while `RAG_ABSTENTION_MODE` and `RAG_BACKEND` are read straight off `process.env`. All new `*_BACKEND` flags go into `EnvironmentSchema` as `z.enum(["web", "nest"]).default("web")` so an unknown value fails fast at boot instead of silently falling back mid-request; the existing bare `process.env` reads are migrated into the same schema opportunistically, not as a prerequisite.
+Flag plumbing (implemented, with caveats): `packages/config/src/index.ts` defines a shared `BackendSchema` (`z.enum(["web", "nest"]).default("web")`) for all six `*_BACKEND` flags, but the `parseEnvironment` function that applies it has **no callers** and `ConfigModule.forRoot` does not pass a `validate`, so an unknown value does **not** fail fast at boot — the running services still read `process.env` directly. The web side (`backend-config.ts`) reads the `NEXT_PUBLIC_*` copies and **silently coerces any non-`nest` value to `web`**. Per-user gating (`rollout.ts` `NEXT_PUBLIC_NEST_ROLLOUT_ENABLED|PERCENTAGE|ALLOWLIST|BLOCKLIST`) is scaffolding with zero callers; routing is decided only by the global `NEXT_PUBLIC_*_BACKEND` flag (see Decisions 7).
 
-Rollback: set the flag back to `web`/`legacy` and redeploy/restart the affected service. Web routes remain deployed until Phase 4 so every flag is immediately reversible. No DB rollback required.
+Rollback: set the flag back to `web` and redeploy/restart the affected service. Web implementation routes (`route.web.ts`) remain in place for the whole transition, so every flag is immediately reversible. No DB rollback required.
 
 ## Acceptance Criteria
 
-- Phase 0: `pnpm --filter @ai-arg/web worker:ingestion` starts and processes a job against a seeded DB (web baseline is reproducible); each parity script runs and reports a pass/fail diff on a known-identical and a deliberately-broken input.
-- Phase 1: Nest and web processors produce identical chunk counts, versions, and offsets for the same documents on a seeded DB; `INGESTION_BACKEND=nest` completes an end-to-end ingest with no web processor involved.
-- Phase 2: For each moved endpoint, web vs Nest responses are equal for identical authenticated requests (profile round-trip, save/get-chat round-trip, document CRUD incl. enqueue and archive, job status); 401 without token, 400 on invalid payload, tenant isolation on cross-user access. Also: a browser request from an allowed origin succeeds with a preflight, an unlisted origin is rejected, and `X-Request-Id` is readable from client JS (verifying `exposedHeaders`); document upload archives to the same bucket path as web and is unreadable by a second user's token.
-- Phase 3: Captured SSE event sequences (metadata → deltas → `[DONE]`, error path, abstention path) are identical between web and Nest for the same inputs; `X-Request-Id` present and stable across stream; `RAG_ABSTENTION_MODE=enforce` abstains identically; model fallback and 429/502 behavior match web.
-- Global: no cross-tenant document or chat leakage; median chat/retrieval latency within 20% of the pre-migration baseline; no user-visible behavior change at any default flag; all web API routes deleted in Phase 4 with a clean `pnpm build` (contracts → config → api → web) and `pnpm lint`.
-- Operational: `requestId` propagates across chat → retrieval → LLM → feedback; structured logs record user/model/backend/document-count/citation-ids/latency.
+Status legend: ✅ verified in this effort · ⏳ pending/open · ⚠️ partially met.
+
+- Phase 0: ✅ `pnpm --filter @ai-arg/web worker:ingestion` starts and processes a job against a seeded DB (worker rewritten standalone, no broken import); ✅ parity scripts run (`parity:ingestion --mode=web-self` PASS; others ready for later phases).
+- Phase 1: ✅ Nest and web processors produce identical chunk counts, versions, and offsets (verified via `parity:ingestion --mode=web-vs-nest`); ✅ `INGESTION_BACKEND=nest` completes an end-to-end ingest via the HTTP poller.
+- Phase 2: ✅ profile round-trip and both chat-history branches verified equal (round-trip parity exposed and fixed real defects: missing `bio`/`location`, single-shape chat-history, paging/cursor deviations); ✅ 401/400/auth enforcement; ✅ CORS preflight from allowed origin (unlisted-origin rejection ⏳ not re-verified); ⚠️ chat-history is read-only in Nest (no `POST /save` — `SaveChatMessageSchema` unused, web `save-chat` unproxied); ⚠️ documents: storage archiving is absent in Nest (no archive, no `sourceUri` backfill, delete only logs) and the list response shape differs (web bare array with `Cache-Control: no-store` + `[]`/200 on error vs Nest `{items, total}` with a narrowed select) — `DOCUMENTS_BACKEND` stays `web`; ⏳ live response-envelope verification still required after Nest restart.
+- Phase 3: ✅ SSE event sequence structurally identical (metadata → deltas → `[DONE]`, error path) per `parity:sse`; ✅ conversation persistence continuity — the browser-generated `conversationId` is a required chat-contract field, Nest persists both messages under it (including assistant `requestId`/citations metadata), and `ChatPanel` skips legacy `/api/save-chat` writes for `CHAT_BACKEND=nest`; ⚠️ `RAG_ABSTENTION_MODE=enforce` abstention parity — ⏳ Nest chat does not enforce abstention at all (see Decisions 8); ⏳ model fallback/429 behavior — implemented but not exercised; ⏳ Nest latency within 20% of baseline — web baseline captured (p50 4905ms → bound 5886ms), Nest not measured (script supports `--target=nest`).
+- Global: ✅ no cross-tenant leakage observed in verified endpoints; ⏳ median latency within 20% (unmeasured for Nest); ✅ no user-visible behavior change at any default flag; ⚠️ Phase 5 retirement not started — web routes, legacy RAG path, and web-only deps remain; ⏳ clean `pnpm build` — web still has 20 pre-existing TypeScript errors (ProfileClient, auth/server, AuthProvider, ChatMarkdown, I18nProviderWrapper, ChatPanel, NavigationProgress, middleware, `@ai-arg/contracts` resolution in web), so a green production build is not yet achievable.
+- Operational: ⚠️ chat trace `requestId` and HTTP `X-Request-Id` are independently generated, so feedback continues to use the SSE metadata ID; request logger records the HTTP request ID. ⏳ structured logging of user/model/backend/doc-count/citation-ids/latency — partially (chat service logs a subset; request-logger middleware logs method/url/status/ms).
 
 ## Implementation Plan
 
-1. Phase 0: fix `scripts/ingestion-worker.ts` import path → build `scripts/parity/` (ingestion DB comparator, endpoint round-trip differ, SSE capture-and-diff) → capture the pre-migration latency baseline the global acceptance criterion compares against.
-2. Phase 1: DB parity harness for slice 12 → worker poller + `INGESTION_BACKEND`.
-3. Phase 2: `enableCors` + `WEB_ORIGINS` in `apps/api/src/main.ts` → contracts additions → `users`, `chat-history`, `feedback`, `documents`, `ingestion-jobs` Nest modules (documents uses the per-request token-scoped Supabase storage client) → client base-URL switchover behind flags → per-endpoint parity checks.
-4. Phase 3: add `langsmith` to `apps/api/package.json` → Nest `chat` module (port `api/chat/route.ts` orchestration + SSE + fallback + LangSmith) → `CHAT_BACKEND` + allowlist → SSE fixture parity.
-5. Phase 4: delete web routes/libs, drop legacy/shadow retrieval, prune deps, contract cleanup, update `docs/next-nest-migration.md` (slices 14–17) and this spec's Implementation Record as each phase lands.
-6. Each phase updates this spec's Status/Implementation Record and its own acceptance evidence; SDD rule in AGENTS.md applies to every slice.
+1. ✅ Phase 0: rewrite `scripts/ingestion-worker.ts` as a standalone dual-mode poller → build `scripts/parity/` (ingestion comparator, endpoint round-trip differ, SSE capture-and-diff, latency baseline, token helper) → capture the web latency baseline (`docs/baselines.md`).
+2. ✅ Phase 1: `INGESTION_BACKEND` in `packages/config` → dual-mode worker (web direct call / nest HTTP POST with worker secret) → web-vs-nest ingestion parity verified.
+3. ✅ Phase 2: `enableCors` + `WEB_ORIGINS` in `apps/api/src/main.ts` → contracts additions (`http.ts`, `documents.ts`, `ChatStreamMetadataSchema`) → `users`, `chat-history`, `feedback`, `documents`, `ingestion-jobs` Nest modules → round-trip parity for user + chat-history (both branches). `documents` cutover deferred: search semantics, single-doc URL form, **list response shape**, enqueue semantics, and the **absent Storage archive chain**.
+4. ✅ Phase 3: add `openai`/`langsmith`/`@supabase/supabase-js` to `apps/api` → Nest `chat` module (`@Sse()` transport, model fallback via shared `llm-config`, LangSmith, message persistence) → SSE structural parity. Abstention enforcement and fallback-path parity remain open.
+5. ✅ Phase 4: web route proxies (`route.ts`/`route.web.ts`) for chat/user/get-chat/feedback/documents/ingestion-jobs, `backend-config.ts` + `api-client.ts` + `rollout.ts` + `backend-monitoring.ts`, `BACKEND-ROUTING-GUIDE.md`. All flags default `web`.
+6. ⏳ Phase 5: Nest latency measurement (`pnpm baseline --target=nest`); abstention enforcement + RAG-in-chat parity in Nest chat; wire per-user rollout (call `getUserBackend`/`apiFetch`) or delete the dead scaffolding; validate config at boot (`parseEnvironment` via `ConfigModule.forRoot({ validate })`); align feedback LangSmith payload; documents search/URL/list-shape/enqueue/storage-archive gaps; web type-error cleanup; then retire web implementation routes/libs, drop legacy/shadow retrieval, prune deps, contract cleanup; update `docs/next-nest-migration.md` and this spec's Implementation Record as each lands.
+7. Each phase updates this spec's Status/Implementation Record and its own acceptance evidence; SDD rule in AGENTS.md applies to every slice.
 
 ## Decisions
 
-1. **Browser → Nest direct (adopted).** The Next client calls Nest directly with the client Supabase session token (supabase-js `getSession()`); supabase-js handles refresh and logout clears the local session. No Next server-side proxy or cookie hand-off.
-2. **SSE transport: manual `@Res()` streaming (adopted).** Nest chat streams via platform-express `@Res()` (`res.setHeader`/`res.flushHeaders`/`res.write`/`res.end`), not `@nestjs/sse`, to keep byte-level control over the frozen SSE protocol.
-3. **Ingestion worker: external poller (adopted).** The worker remains an external loop — the existing `scripts/ingestion-worker.ts` becomes a thin HTTP poller against `POST /api/ingestion/process`. A Nest-internal `setInterval` worker is deferred as a separate follow-up.
-4. **LangSmith + `rag-shadow` monitor (decided).** Web and Nest share the same LangSmith project and `.env` during migration, distinguished by a `service` tag; Nest is the sole tracer after Phase 4. The `rag-shadow` admin page becomes a read-only historical view, the `RagShadowComparison` table is retained (no migration), and shadow writes stop once web chat retires.
-5. **`register` stays in web (decided).** `POST /api/register` remains the Supabase post-signup sync path in web and is out of scope for this migration; only profile read/update moves to Nest.
-6. **Storage writes use the caller's token, not a service-role key (adopted).** Nest builds a per-request Supabase client from the verified access token for archive/list/remove, keeping RLS as the isolation mechanism and avoiding a new privileged secret. The alternative — a service-role key in Nest — was rejected: it would move tenant isolation from RLS into application code and add a secret that can bypass every policy in the project.
-7. **Chat cutover gates per user, not per deployment (adopted).** `CHAT_BACKEND=nest` is scoped by an admin/internal-user allowlist mirroring today's `resolveRagBackend`, because Phase 3's flip criterion is an internal-user soak that a global boolean cannot express.
+1. **Cutover layer: web server-side route proxies (as implemented).** The draft chose browser → Nest direct with the client session token; Phase 4 implemented the alternative — web keeps its `/api/*` paths and proxies server-side to Nest with the user's access token from the cookie session (`getAccessToken()`), so the browser and ChatPanel are unchanged and the token never enters client JS. Direct browser → Nest (and the CORS setup already enabled for it) remains a possible future simplification, not the current architecture.
+2. **SSE transport: `@Sse()` + `Observable<MessageEvent>` (as implemented).** The draft preferred manual `@Res()` streaming over `@nestjs/sse`; the implementation uses the `@Sse()` decorator and was verified structurally identical by the SSE parity harness (metadata → deltas → `[DONE]`, error path). This supersedes the `@Res()` preference; a byte-exact diff against the web stream is still a Phase 5+ item if strictness is required.
+3. **Ingestion worker: external poller (as implemented).** The worker remains an external loop — `scripts/ingestion-worker.ts` is now a standalone dual-mode poller: `INGESTION_BACKEND=web` calls the web processor directly, `nest` HTTP-POSTs `POST /api/ingestion/process` with `INGESTION_WORKER_SECRET`. A Nest-internal `setInterval` worker is deferred as a separate follow-up.
+4. **LangSmith + `rag-shadow` monitor (as implemented).** Web and Nest share the same LangSmith project and `.env` during migration (Nest gates tracing on `LANGSMITH_API_KEY`/`LANGCHAIN_API_KEY`); Nest is the sole tracer after retirement. The `rag-shadow` admin page becomes a read-only historical view, the `RagShadowComparison` table is retained (no migration), and shadow writes stop once web chat retires.
+5. **`register` stays in web (as implemented).** `POST /api/register` remains the Supabase post-signup sync path in web and is out of scope for this migration; only profile read/update moves to Nest.
+6. **Storage writes use the caller's token, not a service-role key (prospective, not yet implemented).** The decision is to build a per-request Supabase client from the verified access token and keep RLS as the isolation mechanism, avoiding a service-role key. In practice `createUserSupabaseClient(token)`/`parseStorageUri` exist in `apps/api/src/storage/` but have **zero callers**, and the documents service has no archive/`sourceUri`-backfill/delete logic at all — the whole Storage chain in Nest is still missing (Phase 5+).
+7. **Per-user gating via the rollout layer (intended, not wired).** The draft described a `CHAT_NEST_INTERNAL_USER_IDS`-style allowlist; Phase 4 added `rollout.ts` (consistent hashing, percentage, allowlist/blocklist) plus `api-client.ts`/`backend-monitoring.ts`, but none of them are called — every proxy routes on the global `backendConfig.<service>` env flag only. The "per-user soak" capability does not exist yet; wire it or remove the scaffolding.
+8. **Nest chat still diverges from web chat across RAG and feedback (acknowledged gaps).** Conversation persistence is aligned: `ChatRequestSchema` requires the browser-generated `conversationId`; Nest writes both messages under that ID and stores the assistant `requestId`/citations metadata; `ChatPanel` only calls `/api/save-chat` for the web backend. Beyond retrieval (no rewrite/keyword gate, own `【引用N】` context, `minSimilarity: 0.5`, no abstention enforcement), **feedback** still differs: Nest's LangSmith payload puts `requestId` in `inputs` with `outputs: {}` and different `metadata`, so dashboard search by `metadata.requestId` fails. These remain Phase 5+ parity items; feedback should not be cut over until closed or explicitly accepted.
 
 ## Implementation Record
+
+### Response Envelope Follow-up (2026-08-24)
+
+**Implementation:** Added a Nest request-ID middleware, global JSON response interceptor, and global exception filter. All non-SSE Nest endpoints now use `{ code, error, data, requestId }`; `ApiErrorSchema` and `ApiSuccessSchema` cover the failure/success branches. The browser-facing Next migration proxies unwrap successful `data`, while direct Nest retrieval, the Nest ingestion worker path, and parity scripts consume the envelope explicitly. The chat SSE event stream is excluded from the interceptor.
+
+**Commands run:**
+```bash
+pnpm --filter @ai-arg/contracts build
+pnpm --filter @ai-arg/api build
+pnpm --filter @ai-arg/web exec eslint src/lib/nest-proxy.ts src/app/api/user/route.ts src/app/api/feedback/route.ts src/app/api/get-chat/route.ts 'src/app/api/ingestion-jobs/[id]/route.ts' src/app/api/documents/route.ts src/app/api/chat/route.web.ts
+git diff --check
+```
+
+**Verification:** all commands passed. Nest was started and is listening on `:4000`; direct health-response inspection is pending because this task sandbox cannot connect to the host-local listener.
 
 ### Phase 0 — Baseline repair (completed)
 
 **Branch:** `codex/nest-monorepo-migration`
 
 **Commits:**
-- Fix ingestion worker import paths (scripts/ingestion-worker.ts:2-3)
+- Rewrite ingestion worker as a standalone dual-mode poller (scripts/ingestion-worker.ts — no broken `../src/lib/ingestion` import)
 - Add Phase 0 parity harness (scripts/parity/)
 - Update spec 005 with Phase 0, CORS, storage credentials, contract extensions
 
@@ -217,7 +242,7 @@ pnpm parity:ingestion -- --mode=web-vs-nest   # ✅ PASS (1 chunk, langchain-300
   * `chat-history` — GET /api/chat-history (uses OpenRouterChat table, cursor-based pagination)
   * `feedback` — POST /api/feedback (logs to console, LangSmith integration deferred to Phase 3)
   * `ingestion-jobs` — GET /api/ingestion-jobs/:id
-  * `documents` — GET/POST/PUT/DELETE /api/documents (CRUD + enqueue, Supabase storage deletion placeholder)
+  * `documents` — GET/POST/PUT/DELETE /api/documents (CRUD + enqueue; Supabase archiving absent)
 - **Contract schemas extended**:
   * `ChatStreamMetadataSchema` + ragDecision/ragAbstainReason fields
   * `UserProfileSchema`, `ChatHistoryMessagesResponseSchema`, `FeedbackRequestSchema`
@@ -272,13 +297,12 @@ Note: a stale `nest start` process silently served pre-fix code through one
 round of these checks. Restart Nest before trusting a parity result.
 
 **Deferred:**
-- LangSmith feedback integration (wired in Phase 3)
-- Supabase storage per-request client (documents.service.ts still has a
-  deletion placeholder)
+- LangSmith feedback integration (wired in Phase 3, but with a divergent payload — see Decisions 8)
+- Supabase storage per-request client: `createUserSupabaseClient`/`parseStorageUri` are defined but unused — the whole archive chain in Nest is absent, not just a deletion placeholder
 
 **`documents` is not ready for cutover.** Web's route does exist (313 lines) —
 an earlier note here claiming otherwise was wrong, from a failed `cd` that made
-the file look absent. Three gaps remain between it and the Nest module:
+the file look absent. Gaps between it and the Nest module:
 
 - **`search` semantics differ.** Web embeds the query and does a pgvector
   nearest-neighbour scan (`embedding <=> query`, `status = READY`, limit 10)
@@ -288,8 +312,19 @@ the file look absent. Three gaps remain between it and the Nest module:
 - **Single-document URLs differ.** Web addresses one document via `?id=<uuid>`
   on the collection route; Nest uses `/documents/:id`. The proxy translates
   query→path, but this is worth keeping in mind when comparing the two.
-- **Storage deletion is a placeholder.** Deleting a document in Nest logs the
-  intent and leaves the Supabase object in place, so files would accumulate.
+- **List response shape and projection differ.** Web `GET /api/documents`
+  returns a bare array of full rows with `Cache-Control: no-store` and `[]` +
+  200 on error; Nest returns `{ items, total }` with a narrowed select. The
+  knowledge page now accepts either envelope for list rendering, but Nest's
+  projection still omits legacy preview/edit fields.
+- **Storage archive chain is absent.** Web `archiveDocumentSource` writes the
+  source and backfills `sourceUri`; Nest `create`/`update` never archive, never
+  set `sourceUri`, and `deleteFromStorage` only logs. The per-request client
+  helpers exist but are unused.
+- **Enqueue semantics diverge.** Nest inlines its own transaction:
+  `idempotencyKey` is `create-${checksum}` (web uses the `idempotency-key`
+  header), there is no `userId + idempotencyKey` de-dup, and reindex does not
+  cancel in-flight `QUEUED`/`RETRY` jobs.
 
 Until those close, `DOCUMENTS_BACKEND` should stay `web`, and the
 `documents` round-trip is not meaningful to run.
@@ -328,12 +363,13 @@ Until those close, `DOCUMENTS_BACKEND` should stay `web`, and the
 
 **Endpoints:**
 - POST /api/chat → SSE stream
-  * Auth required (Supabase JWT)
-  * Accepts: `{messages: [{role, content}], useRAG?: boolean}`
-  * Returns: SSE events
-    - `{type: "delta", content: "..."}`
-    - `{type: "metadata", requestId, model, citations, ragDecision, ragAbstainReason}`
-    - `{type: "error", error: "..."}`
+  * Auth required (Supabase JWT); 401 without token
+  * Accepts: `{messages: [{role, content}], useRAG?: boolean}` (validated by `ChatRequestSchema`)
+  * Returns: SSE events (wire format identical to web)
+    - `{type: "metadata", requestId, model, citations, ragDecision?, ragAbstainReason?}` — emitted first
+    - provider delta chunks forwarded as-is with the resolved model (`{...chunk, model}`; ChatPanel reads `choices[0].delta.content`)
+    - `data: [DONE]` terminator on success and error paths
+    - `{type: "error", error: "模型流式响应中断，请稍后重试"}` on stream failure
 
 **Commands run:**
 ```bash
@@ -405,13 +441,19 @@ p50 4905ms, p95 6722ms, mean 5193ms, 20/20 successful — written to
 - [x] Chat SSE streaming endpoint compiles and runs
 - [x] LangSmith tracing integrated (wrapOpenAI + metadata)
 - [x] RAG citations extracted from hybridSearch results
-- [x] Supabase storage helpers ready for per-request RLS
+- [x] Supabase storage helpers (`createUserSupabaseClient`/`parseStorageUri`) defined but **not called** — archive chain still absent
 - [x] CHAT_BACKEND flag added to config
 - [x] Messages saved to OpenRouterChat table
 - [x] SSE event sequence identical (metadata → deltas → `[DONE]`, error path)
 - [ ] Nest latency within 20% of baseline — baseline captured, Nest not measured
 - [ ] Abstention path parity (`RAG_ABSTENTION_MODE=enforce`) — not exercised
 - [ ] Model fallback / 429 behaviour — implemented, not exercised
+
+**Persistence follow-up (2026-08-23):** `ChatRequestSchema` now requires the
+browser-generated `conversationId`; `ChatPanel` sends it on every chat request
+and skips `/api/save-chat` when `CHAT_BACKEND=nest`; Nest writes both messages
+under that ID and saves assistant `requestId`/citations metadata. Contract and
+Nest builds pass. A local clean-stream/history verification remains pending.
 
 ---
 
@@ -424,22 +466,15 @@ p50 4905ms, p95 6722ms, mean 5193ms, 20/20 successful — written to
   * `backend-config.ts`: reads `NEXT_PUBLIC_*_BACKEND` flags, returns backend URLs
   * `api-client.ts`: fetch wrapper with auto token injection, monitoring integration
   * All flags default to "web" (backward compatible)
-- **Route proxies (5)**: Transparently route requests based on backend config
+- **Route proxies (6)**: Transparently route requests based on the global `backendConfig.<service>` flag (documents proxy added in `e7d879a`)
   * Chat: `/api/chat` → web or nest SSE stream
   * Feedback: `/api/feedback` → web or nest
   * User: `/api/user` → web or nest (GET/PUT)
   * Chat history: `/api/get-chat` → web or nest
+  * Documents: `/api/documents` → web or nest
   * Ingestion jobs: `/api/ingestion-jobs/:id` → web or nest
-- **Per-user rollout logic**:
-  * `rollout.ts`: consistent hashing (same user → same backend)
-  * Percentage-based rollout (0-100%)
-  * Allowlist/blocklist support
-  * `getUserBackend(userId)` determines routing per user
-- **Monitoring & logging**:
-  * `backend-monitoring.ts`: request logging, latency tracking
-  * `BackendMetrics`: in-memory p50/p95/p99 aggregation
-  * `logBackendRoute()`: logs every routing decision
-  * Ready for integration with Datadog/Prometheus
+  * Note: `/api/save-chat` is **not** proxied (no `route.web.ts`, no flag).
+- **Per-user rollout logic (scaffolding, not wired)**: `rollout.ts` (consistent hashing, percentage, allowlist/blocklist) and `api-client.ts`/`backend-monitoring.ts` exist but have **zero callers** — no proxy uses `getUserBackend`/`apiFetch`/`logBackendRoute`, so routing is decided only by the global env flag. The `getUserBackend(userId)` path is dead code until wired.
 - **Complete documentation**:
   * `BACKEND-ROUTING-GUIDE.md`: usage guide, rollout process, troubleshooting
   * Environment variable reference
@@ -499,19 +534,19 @@ curl http://localhost:3000/api/chat \
 ```
 
 **Manual verification:**
-- Route proxies correctly forward to web or nest based on flags
-- Auth tokens automatically injected for Nest endpoints
+- Route proxies correctly forward to web or nest based on the global flag
+- Auth tokens automatically injected for Nest endpoints (server-side `getAccessToken()`)
 - SSE streaming preserved through proxy
-- Per-user rollout logic produces consistent hashing
-- Monitoring logs all routing decisions with latency
+- Per-user rollout logic: ⚠️ scaffolding exists but is not invoked anywhere — not verified in a live path
+- Monitoring: ⚠️ `backend-monitoring.ts`/`logBackendRoute` are not called — not verified in a live path
 - Rollback works (change flag → redeploy)
 
 **Acceptance met:**
 - [x] Backend config reads all 6 flags
-- [x] 5 route proxies implemented and tested
-- [x] Per-user rollout with consistent hashing
-- [x] Allowlist/blocklist support
-- [x] Monitoring framework (logging + metrics)
+- [x] 6 route proxies implemented and tested (documents added in `e7d879a`)
+- [ ] Per-user rollout with consistent hashing — **scaffolding only, not wired**
+- [ ] Allowlist/blocklist support — scaffolding only, not wired
+- [ ] Monitoring framework (logging + metrics) — scaffolding only, not wired
 - [x] Complete usage documentation
 - [x] Zero breaking changes (all defaults to web)
 - [x] Rollback plan documented
@@ -524,45 +559,53 @@ curl http://localhost:3000/api/chat \
 
 ---
 
-### Phase 5+ — Future enhancements (optional)
+### Phase 5+ — Remaining work (blocking for cutover)
 
-**Remaining work (non-blocking):**
-- Supabase storage deletion implementation (documents service has placeholder)
-- SSE parity test with valid token (web vs nest streaming output)
-- Latency baseline capture (50 requests, compare web vs nest)
+**Blocking gaps (per Decisions 6/7/8 and the corrected Design):**
+- Nest chat latency measurement (`pnpm baseline --target=nest`; web baseline p50 4905ms → Nest bound 5886ms already captured)
+- Abstention enforcement + RAG-in-chat parity in Nest chat (rewrite/keyword gate/`<evidence>` format/`minSimilarity`)
+- Model fallback/429 path exercise
+- Wire per-user rollout (`getUserBackend`/`apiFetch`/`logBackendRoute`) or delete the dead scaffolding; currently routing is global-flag only
+- Config fail-fast: call `parseEnvironment` via `ConfigModule.forRoot({ validate })` (currently unknown values do not fail at boot; web silently coerces)
+- Documents: full Storage chain (archive → `sourceUri` backfill → delete) via `createUserSupabaseClient`, search semantics (pgvector vs contains), single-doc URL form, list-response shape (web bare array vs Nest `{items,total}`), enqueue semantics (idempotency key, de-dup, in-flight reindex cancel)
+- Feedback LangSmith payload parity (web `outputs.verdict`/`metadata.requestId`/timestamps vs Nest `outputs:{}`/`requestId` in inputs)
+- Web type-error cleanup (20 pre-existing errors) for a green `pnpm build`
+
+**Non-blocking / follow-ups:**
 - Circuit breaker (auto fallback to web if Nest unavailable)
 - A/B testing framework
-- Real-time dashboard for rollout monitoring
-- Alerting rules (error rate, latency thresholds)
+- Real-time rollout dashboard and alerting rules
 
 **Production readiness:**
-- ✅ Code complete (Phase 0-4)
-- ✅ Zero breaking changes
-- ✅ Backward compatible
-- ✅ Gradual rollout ready
-- ✅ Monitoring framework in place
-- ✅ Rollback plan clear
-- ⏳ Performance testing (needs staging + real traffic)
-- ⏳ Load testing (needs production-like environment)
+- ✅ Phase 0–4 code complete, zero breaking changes at defaults, rollback plan clear
+- ⏳ Per-user rollout — scaffolding only, not wired
+- ⏳ Monitoring framework — scaffolding only, not wired
+- ⏳ Parity gaps above closed + performance/load testing (needs staging + real traffic)
 
 ---
 
 ## Summary
 
-**Status:** Phase 0-4 complete (100%)
+**Status:** Phase 0–4 code complete; **not yet ready for production cutover** — see open items below.
 
-**Commits:** 14 total
-- Phase 0: 2 commits (baseline repair + parity harness)
-- Phase 1: 1 commit (ingestion cutover)
-- Phase 2: 3 commits (5 modules + CORS + contracts)
-- Phase 3: 4 commits (chat SSE + LangSmith + citations)
-- Phase 4: 4 commits (routing infra + proxies + rollout + monitoring)
+**Commits:** ~23 commits on `codex/nest-monorepo-migration` (Phase 0: 2, Phase 1: 1, Phase 2: 6, Phase 3: 7, Phase 4: 3, parity/verification fixes: 4+).
 
-**Files changed:** 60+
-**Lines of code:** ~5000 (TypeScript, Markdown)
+**What is verified:**
+- Ingestion parity (web vs Nest) — chunk count/versions/offsets identical
+- Profile + chat-history (both branches) round-trip parity; real defects found and fixed
+- SSE structural parity (metadata → deltas → `[DONE]`, error path)
+- CORS preflight from allowed origins; all new endpoints enforce auth
+- Web latency baseline captured (p50 4905ms; Nest bound 5886ms)
 
-**Ready for deployment:** Yes
-**Risk level:** Low (backward compatible + gradual rollout)
-**Estimated rollout timeline:** 4 weeks (internal → 10% → 50% → 100%)
+**What blocks a production cutover (Phase 5+):**
+- Nest chat latency not yet measured (`pnpm baseline --target=nest`)
+- Nest chat RAG deviations (no rewrite/keyword gate, own context format, no abstention enforcement, `minSimilarity` 0.5) — see Decisions 8
+- `DOCUMENTS_BACKEND` gaps: search semantics, single-doc URL form, list-response shape (bare array vs `{items,total}`), enqueue semantics, and the absent Storage archive chain (helpers defined but unused)
+- Per-user rollout and monitoring are dead code (no callers); routing is global-flag only; config flags do not fail-fast at boot
+- Feedback LangSmith payload differs (web `outputs.verdict`/`metadata.requestId` vs Nest `outputs:{}`/`requestId` in inputs)
+- Abstention (`RAG_ABSTENTION_MODE=enforce`) and model-fallback/429 parity not exercised
+- Web still has 20 pre-existing TypeScript errors — `pnpm build` not green
+
+**Rollout posture:** all flags default `web`; zero user-visible change until a flag flips. Verified flips today: `INGESTION_BACKEND`, `USER_BACKEND`, `CHAT_HISTORY_BACKEND`; chat persistence continuity is implemented but still needs a clean live-stream/manual history check before `CHAT_BACKEND` is enabled beyond local testing because RAG/abstention and latency gaps remain. Do **not** flip `FEEDBACK_BACKEND` (payload mismatch) or `DOCUMENTS_BACKEND` (storage/listing gaps) until their Phase 5+ items close. Estimated timeline: internal soak → 10% → 50% → 100% per service after acceptance items close.
 
 ---
